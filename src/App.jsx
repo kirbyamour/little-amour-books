@@ -1005,12 +1005,12 @@ function DashboardPage({ go, onSignOut }) {
    ============================================================ */
 const AMORA_SYS = "You are Amora, the warm, calm, trauma-informed book muse of Little Amour Books. You guide survivor mothers through making gentle children's picture books about hard things (family court, leaving, fear, rebuilding). Voice: kind, encouraging, plain, never clinical, never pressuring. Craft rules: ages 3-7, simple true language, never graphic, never blame or burden the child, every book bends toward reassurance and safety. Never rewrite the author's words unless she asks. Keep replies short and human.";
 
-async function amora(prompt, system) {
+async function amora(prompt, system, maxTokens) {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6", max_tokens: 1400,
+      model: "claude-sonnet-4-6", max_tokens: maxTokens || 1400,
       system: system || AMORA_SYS,
       messages: [{ role: "user", content: prompt }],
     }),
@@ -1290,7 +1290,7 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
         return data;
       } catch (e) {
         clearTimeout(timer);
-        if (e.name === "AbortError") throw new Error("the reading tools didn't respond — they're blocked in this preview");
+        if (e.name === "AbortError") throw new Error("a page took too long to read — please try again");
         throw e;
       }
     };
@@ -1299,11 +1299,14 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
       // Vision pass: analyze each page image into {text, characters, style, sceneSummary}
       const analyses = [];
       for (let i = 0; i < uploads.length; i++) {
-        const base64 = uploads[i].dataUrl.split(",")[1];
+        const dataUrl = uploads[i].dataUrl;
+        const mimeMatch = dataUrl.match(/^data:([^;]+);base64,/);
+        const mediaType = (mimeMatch && mimeMatch[1]) || "image/jpeg";
+        const base64 = dataUrl.split(",")[1];
         const data = await fetchWithTimeout({
           model: "claude-sonnet-4-6", max_tokens: 700, system: AMORA_SYS + " STRUCTURED MODE: output valid JSON only.",
           messages: [{ role: "user", content: [
-            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
+            { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
             { type: "text", text: `This is finished page ${i + 1} of a survivor mother's children's picture book. Look closely. Return ONLY JSON: {"text":"the exact words printed on this page, verbatim, or empty string if none","characters":["names or short labels of any characters visible, e.g. 'Mama','child','bear'"],"style":"brief note on art style, palette, and any visible font/lettering style","scene":"one-line description of what happens on this page"}` },
           ] }],
         });
@@ -1319,7 +1322,8 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
       const styleNotes = analyses.map((a) => a.style).filter(Boolean).slice(0, 6).join(" | ");
       const synthRaw = await amora(
         `A survivor author uploaded ${uploads.length} finished picture-book pages. Here is what I read from each:\n${perPage}\n\n${manuscript.trim() ? `She also pasted her own manuscript text below. Where a page's printed text is blank or unclear, use the matching manuscript line. Preserve her exact words — never rewrite.\nMANUSCRIPT:\n"""${manuscript.trim()}"""\n` : ""}\nArt/lettering style notes across pages: ${styleNotes}\n\nReturn ONLY JSON:\n{"title":"the book's title if visible on a page, else best guess","characters":[{"name":"","desc":"consistent visual + emotional description built from how this character actually appears across the pages"}],"styleGuide":"a short locked style + font description for future pages and the cover","pages":[{"n":1,"text":"final text for page 1"}],"note":"one warm sentence on what you found"}\nInclude one pages entry per uploaded page, in order. Merge recurring characters into one bible entry each.`,
-        AMORA_SYS + " STRUCTURED MODE: output valid JSON only."
+        AMORA_SYS + " STRUCTURED MODE: output valid JSON only.",
+        4000
       );
       const j = parseLoose(synthRaw);
       const byN = {}; (j.pages || []).forEach((p) => { byN[p.n] = p.text; });
@@ -1334,7 +1338,7 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
       setTimeout(onDone, 1100);
     } catch (e) {
       const msg = (e && e.message) ? e.message : "";
-      push("amora", `I couldn't finish reading the pages just now${msg ? ` (${msg})` : ""}. Nothing was lost. In the in-chat preview my reading tools are sometimes blocked — this step runs reliably once the site is deployed on its own. If you'd like, we can also try a smaller batch of pages.`);
+      push("amora", `I couldn't finish reading the pages just now${msg ? ` — ${msg}` : ""}. Nothing was lost. Try clicking "Build the book from my uploads" again. If you have a lot of pages, try uploading 10 at a time so I can read each batch fully.`);
     }
     setBusy(false);
   };
