@@ -1019,6 +1019,26 @@ async function amora(prompt, system, maxTokens) {
   if (data.error) throw new Error(data.error.message || "Studio tools unavailable");
   return (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
 }
+// Vision pass on existing book page images — extracts a precise style description
+// so every new illustration truly matches the pages already in the book.
+async function deriveStyleFromImages(dataUrls) {
+  if (!dataUrls.length) return null;
+  try {
+    const content = [
+      { type: "text", text: "These are pages from a children's picture book. Describe the visual art style in 4–5 sentences precise enough for an AI image generator to reproduce it on new pages. Cover: art medium, line quality, colour palette and saturation, rendering technique (flat/textured/painterly), character proportions and facial style, background treatment, mood. Be technical and specific — this description locks the style for every future page." },
+      ...dataUrls.map(url => {
+        const m = url.match(/^data:([^;]+);base64,(.+)$/);
+        return m ? { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } } : null;
+      }).filter(Boolean),
+    ];
+    const res = await fetch("/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 350, messages: [{ role: "user", content }] }),
+    });
+    const data = await res.json();
+    return data.content?.[0]?.text?.trim() || null;
+  } catch (_) { return null; }
+}
 function parseLoose(text) {
   let t = text.replace(/```json|```/g, "").trim();
   const a = t.indexOf("{"), b = t.lastIndexOf("}");
@@ -1314,11 +1334,18 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
         const isSaveBible = text.toLowerCase().includes("save") && (text.toLowerCase().includes("character") || text.toLowerCase().includes("bible"));
 
         if (isImageReq) {
-          // Pull locked context from collection (preferred) or book
-          const styleGuide = (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
           const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
-          const modelHint = (collection && collection.modelHint) || "auto";
           const seed = collection ? collection.seed : null;
+
+          // Look at pages already in the book (uploaded or previously generated) to derive
+          // the true visual style — text descriptions alone can't guarantee page-to-page consistency.
+          const existingImgs = book.pages.filter(p => p.img).map(p => p.img).slice(0, 3);
+          let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
+          if (!book.derivedStyle && existingImgs.length) {
+            push("amora", "Looking at your existing pages to lock in the visual style…");
+            const derived = await deriveStyleFromImages(existingImgs);
+            if (derived) { styleGuide = derived; setBook(b => ({ ...b, derivedStyle: derived })); }
+          }
 
           push("amora", "On it — building that image now…");
 
