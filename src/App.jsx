@@ -1364,7 +1364,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
           if (imgData.error) {
             push("amora", `I couldn't generate that image just now — ${imgData.error}. Check that FAL_API_KEY or OPENAI_API_KEY is set in your Vercel environment variables.`);
           } else {
-            setMsgs((m) => [...m, { role: "amora", text: "Here it is ✦ Click "Add to book" to place it on a page.", imgUrl: imgData.url, model: imgData.model }]);
+            setMsgs((m) => [...m, { role: "amora", text: "Here it is ❖ Click “Add to book” to place it on a page.", imgUrl: imgData.url, model: imgData.model }]);
           }
 
         } else if (isSaveBible) {
