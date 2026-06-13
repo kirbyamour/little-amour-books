@@ -1032,6 +1032,7 @@ const KIRBY_SEED = {
       id: "coll_bld", name: "Big Little Days",
       styleGuide: "Soft watercolour illustration, warm beige/mauve/slate-blue palette, handwritten-style lettering, gentle ink outlines, textured paper background.",
       modelHint: "flux",
+      seed: 487291,
       characters: [
         { name: "Mama", desc: "Warm, tired-but-steady mother; dark hair loosely tied back; soft mustard cardigan and a small gold locket. Always gentle toward Little One." },
         { name: "Little One", desc: "Small child, around 4; dark curls; dusty-rose striped pajamas; carries Moon Bear everywhere. Curious and sensitive." },
@@ -1138,7 +1139,8 @@ function KirbyStudio({ go, onSignOut }) {
     const name = prompt("Name this character collection:", bk.title + " Universe");
     if (!name) return;
     const id = "coll_" + Date.now();
-    setCollections((cs) => [...cs, { id, name, styleGuide: bk.styleGuide || "", modelHint: "auto", characters: bk.characters.map((c) => ({ ...c })) }]);
+    const seed = Math.floor(Math.random() * 900000) + 100000;
+    setCollections((cs) => [...cs, { id, name, styleGuide: bk.styleGuide || "", modelHint: "auto", seed, characters: bk.characters.map((c) => ({ ...c })) }]);
     setData((d) => ({ ...d, books: d.books.map((b) => b.id === bookId ? { ...b, collectionId: id } : b) }));
   };
 
@@ -1307,26 +1309,55 @@ function AmoraBuild({ book, setBook, collection, onGoEditor, onBack }) {
         const isSaveBible = text.toLowerCase().includes("save") && (text.toLowerCase().includes("character") || text.toLowerCase().includes("bible"));
 
         if (isImageReq) {
-          // Build style context from collection or book
+          // Pull locked context from collection (preferred) or book
           const styleGuide = (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
-          const charList = ((collection && collection.characters.length ? collection.characters : book.characters) || [])
-            .map((c) => `${c.name}: ${c.desc}`).join("\n");
+          const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
           const modelHint = (collection && collection.modelHint) || "auto";
+          const seed = collection ? collection.seed : null;
 
           push("amora", "On it — building that image now…");
 
-          // Ask Amora to write a locked prompt and pick the model
-          const promptRaw = await amora(
-            `The author wants to generate an illustration for their picture book.\n\nTheir request: "${text}"\n\nStyle guide: ${styleGuide}\n\nCharacter Bible:\n${charList || "(none yet — use the style guide only)"}\n\nImage generation hint: "${modelHint}" (flux = painterly/watercolour/illustrated; dalle = clean/bold/graphic/pop/modern; auto = you decide based on style)\n\nReturn ONLY JSON with two keys:\n{"model":"flux" or "dalle","prompt":"A vivid, detailed image generation prompt (150-250 words) that includes: exact art style from the style guide, all relevant characters described precisely as in the Character Bible, the scene, lighting, mood, colour palette, and any text or lettering style. The prompt must ensure visual consistency with existing artwork."}\n\nChoose "flux" for painterly, watercolour, soft, illustrated, storybook, artistic styles. Choose "dalle" for clean, bold, graphic, flat, pop art, minimal, modern, geometric styles.`,
-            AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 1000
+          // Step 1: Ask Amora ONLY for the scene description + model choice.
+          // We inject the full character manifest ourselves so nothing drifts.
+          const sceneRaw = await amora(
+            `The author wants to generate a picture-book illustration.\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"model":"flux" or "dalle","scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}\n\nChoose "flux" for painterly, watercolour, soft, illustrated, storybook, artistic, gouache, mixed-media styles.\nChoose "dalle" for clean, bold, graphic, flat, pop art, minimal, modern, geometric, digital styles.\nHint from style guide: ${styleGuide}`,
+            AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 600
           );
 
-          let imgMeta = { model: modelHint === "auto" ? "flux" : modelHint, prompt: text };
-          try { imgMeta = parseLoose(promptRaw); } catch (_) { /* use defaults */ }
+          let sceneMeta = { model: modelHint === "auto" ? "flux" : modelHint, scene: text };
+          try { sceneMeta = parseLoose(sceneRaw); } catch (_) { /* use defaults */ }
+
+          // Step 2: Build the locked consistency manifest client-side — always injected, never recalled from memory
+          const charManifest = activeChars.length
+            ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+            : "(no named characters — environment/setting only)";
+
+          const lockedPrompt = [
+            `STYLE (locked, must not change between pages): ${styleGuide}`,
+            ``,
+            `CHARACTERS (locked, exact appearance must be identical on every page):`,
+            charManifest,
+            ``,
+            `SCENE (this page only): ${sceneMeta.scene || text}`,
+            ``,
+            `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${book.pages.length + 1} of a series; visual consistency with all other pages is essential.`,
+          ].join("\n");
+
+          // Negative prompt — what must never change or appear
+          const negativePrompt = [
+            "photo realistic", "3d render", "different clothing", "different hair", "different skin tone",
+            "inconsistent character", "style change", "different art style", "cartoon", "anime",
+            "changed proportions", "adult content", "violence", "scary imagery",
+          ].join(", ");
 
           const imgRes = await fetch("/api/image", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: imgMeta.prompt || text, model: imgMeta.model || "flux" }),
+            body: JSON.stringify({
+              prompt: lockedPrompt,
+              model: sceneMeta.model || (modelHint === "auto" ? "flux" : modelHint),
+              seed,
+              negative_prompt: negativePrompt,
+            }),
           });
           const imgData = await imgRes.json();
           if (imgData.error) {

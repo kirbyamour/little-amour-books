@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { prompt, model } = req.body;
+  const { prompt, model, seed, negative_prompt } = req.body;
   if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
   const falKey = process.env.FAL_API_KEY;
@@ -35,20 +35,26 @@ export default async function handler(req, res) {
 
   try {
     if (useModel === "flux") {
+      const falBody = {
+        prompt,
+        image_size: "portrait_4_3",
+        num_inference_steps: 28,
+        guidance_scale: 3.5,
+        num_images: 1,
+        enable_safety_checker: true,
+      };
+      // Seed locking: same seed = same visual DNA across all pages in a book/collection
+      if (seed != null) falBody.seed = Number(seed);
+      // Negative prompt to prevent style and character drift
+      if (negative_prompt) falBody.negative_prompt = negative_prompt;
+
       const r = await fetch("https://fal.run/fal-ai/flux/dev", {
         method: "POST",
         headers: {
           "Authorization": `Key ${falKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          prompt,
-          image_size: "portrait_4_3",
-          num_inference_steps: 28,
-          guidance_scale: 3.5,
-          num_images: 1,
-          enable_safety_checker: true,
-        }),
+        body: JSON.stringify(falBody),
       });
       const data = await r.json();
       const url = data?.images?.[0]?.url;
