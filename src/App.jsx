@@ -1161,24 +1161,79 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [chatImg, setChatImg] = useState(null); // {dataUrl, mediaType, name}
+  const chatImgRef = useRef(null);
   const scroller = useRef(null);
   useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [msgs, busy]);
 
   const push = (role, text) => setMsgs((m) => [...m, { role, text }]);
 
+  const attachChatImage = (file) => {
+    if (!file) return;
+    const mimeMatch = file.type || "image/jpeg";
+    const fr = new FileReader();
+    fr.onload = () => setChatImg({ dataUrl: fr.result, mediaType: file.type || "image/jpeg", name: file.name });
+    fr.readAsDataURL(file);
+  };
+
   const send = async (override) => {
     const text = (override || input).trim();
-    if (!text || busy) return;
-    push("user", text);
+    if ((!text && !chatImg) || busy) return;
+    const imgSnap = chatImg;
+    push("user", text + (imgSnap ? ` [image: ${imgSnap.name}]` : ""));
     setInput("");
+    setChatImg(null);
     setBusy(true);
     try {
-      const convo = msgs.concat({ role: "user", text }).slice(-12)
-        .map((m) => `${m.role === "amora" ? "Amora" : "Kirby"}: ${m.text}`).join("\n");
-      const reply = await amora(
-        `You are guiding Kirby through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft pages. Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
-      );
-      push("amora", reply);
+      if (imgSnap) {
+        // Vision message — Amora reads the attached image (character sheet, sketch, etc.)
+        const base64 = imgSnap.dataUrl.split(",")[1];
+        const userPrompt = text || "Please read this image and tell me what you see. If it's a character design sheet, extract each character's name, appearance, and any colour palette or style notes, then build a Character Bible entry for each one. Keep every detail exactly as shown.";
+        const res = await fetch("/api/chat", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6", max_tokens: 2000, system: AMORA_SYS,
+            messages: [{ role: "user", content: [
+              { type: "image", source: { type: "base64", media_type: imgSnap.mediaType, data: base64 } },
+              { type: "text", text: userPrompt },
+            ] }],
+          }),
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        const reply = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+        push("amora", reply);
+        // If it looks like a character sheet, offer to save to Character Bible
+        if (reply.toLowerCase().includes("character") || reply.toLowerCase().includes("mama") || reply.toLowerCase().includes("palette")) {
+          push("amora", "Want me to save these characters to your book's Character Bible? Just say \"yes, save to my Character Bible\" and I'll add them.");
+        }
+      } else {
+        const convo = msgs.concat({ role: "user", text }).slice(-12)
+          .map((m) => `${m.role === "amora" ? "Amora" : "Kirby"}: ${m.text}`).join("\n");
+        // Check if user is asking to save to Character Bible after a vision read
+        if (text.toLowerCase().includes("save") && text.toLowerCase().includes("character")) {
+          const lastAmoraMsg = [...msgs].reverse().find((m) => m.role === "amora");
+          const charText = lastAmoraMsg ? lastAmoraMsg.text : "";
+          const saveReply = await amora(
+            `Kirby wants to save these character descriptions to her Character Bible. Parse the following Amora message and return a JSON array: [{"name":"...","desc":"full visual + emotional description including clothing, palette, personality"}]. Only valid JSON array, nothing else.\n\nAmora message:\n${charText}`,
+            AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 1500
+          );
+          try {
+            const chars = JSON.parse(saveReply.trim().replace(/^```json\n?|\n?```$/g, ""));
+            if (Array.isArray(chars) && chars.length) {
+              setBook((b) => ({ ...b, characters: [...b.characters.filter((c) => !chars.find((nc) => nc.name === c.name)), ...chars] }));
+              push("amora", `Saved ${chars.map((c) => c.name).join(", ")} to your Character Bible. You can see and edit them in the book editor any time.`);
+            } else throw new Error("no chars");
+          } catch {
+            push("amora", "I wasn't quite sure how to parse those — could you copy the character descriptions into the Character Bible fields in the editor and I'll keep them consistent from there?");
+          }
+        } else {
+          const reply = await amora(
+            `You are guiding Kirby through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft pages. Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
+          );
+          push("amora", reply);
+        }
+      }
     } catch (e) {
       push("amora", "I lost my thread for a second there — nothing's lost. Could you say that once more?");
     }
@@ -1380,11 +1435,21 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
               <button key={q} disabled={busy} onClick={() => q === "Build the pages now" ? generatePages() : send(q)}>{q}</button>
             ))}
           </div>
+          {chatImg ? (
+            <div className="chat-img-preview">
+              <img src={chatImg.dataUrl} alt="attached" />
+              <span>{chatImg.name}</span>
+              <button onClick={() => setChatImg(null)} title="Remove">✕</button>
+            </div>
+          ) : null}
           <div className="amora-bar">
-            <textarea rows={1} placeholder="Tell Amora what you have…" value={input}
+            <input type="file" accept="image/*" ref={chatImgRef} style={{ display: "none" }}
+              onChange={(e) => { attachChatImage(e.target.files[0]); e.target.value = ""; }} />
+            <button className="btn-attach" title="Attach image (character sheet, sketch…)" onClick={() => chatImgRef.current && chatImgRef.current.click()}>📎</button>
+            <textarea rows={1} placeholder="Tell Amora what you have… or attach an image ↑" value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
-            <button className="btn-gold" disabled={busy || !input.trim()} onClick={() => send()}>Send</button>
+            <button className="btn-gold" disabled={busy || (!input.trim() && !chatImg)} onClick={() => send()}>Send</button>
           </div>
         </div>
 
@@ -1990,6 +2055,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .amora-quick button:hover:not(:disabled) { background: ${P.paperWarm}; }
 .amora-bar { display: flex; gap: 10px; padding: 14px 18px; border-top: 1px solid #EBDFCC; align-items: flex-end; }
 .amora-bar textarea { flex: 1; font-family: var(--body); font-size: 14.5px; border: 1.5px solid #E3D3BC; border-radius: 12px; padding: 11px 13px; background: ${P.paper}; resize: none; max-height: 120px; }
+.btn-attach { background: none; border: 1.5px solid #E3D3BC; border-radius: 10px; padding: 9px 11px; font-size: 16px; cursor: pointer; flex-shrink: 0; transition: background 0.15s; }
+.btn-attach:hover { background: ${P.paperWarm}; }
+.chat-img-preview { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: ${P.paperWarm}; border-radius: 10px; margin-bottom: 6px; font-size: 13px; color: ${P.ink}; }
+.chat-img-preview img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #E3D3BC; }
+.chat-img-preview span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-img-preview button { background: none; border: none; cursor: pointer; font-size: 14px; color: ${P.mauve}; padding: 2px 6px; }
 
 .ed-tabs { display: flex; gap: 8px; align-items: center; margin: 6px 0 18px; flex-wrap: wrap; }
 .ed-tabs button { background: ${P.cream}; border: 1px solid #E3D3BC; color: ${P.inkSoft}; border-radius: 999px; padding: 8px 16px; font-size: 14px; font-weight: 600; }
