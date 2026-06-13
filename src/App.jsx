@@ -1306,9 +1306,9 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
         const convo = msgs.concat({ role: "user", text }).slice(-12)
           .map((m) => `${m.role === "amora" ? "Amora" : "Kirby"}: ${m.text}`).join("\n");
 
-        // Detect image generation requests
-        const isImageReq = /\b(generate|draw|create|make|illustrate|paint|render|show me|picture of|image of)\b/i.test(text)
-          && /\b(page|scene|spread|cover|character|illustration|image|picture|background|setting)\b/i.test(text);
+        // Detect image generation requests — stem-based so typos like "illiatrate" still match
+        const isImageReq = /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(text)
+          && /page|scene|spread|cover|illustrat|image|picture|background|setting/i.test(text);
 
         // Detect save-to-bible request
         const isSaveBible = text.toLowerCase().includes("save") && (text.toLowerCase().includes("character") || text.toLowerCase().includes("bible"));
@@ -1326,7 +1326,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
           // Model is always Flux (seed-locked for consistency). We inject the full
           // character manifest ourselves so nothing drifts from page to page.
           const sceneRaw = await amora(
-            `The author wants to generate a picture-book illustration.\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}`,
+            `The author wants to generate a picture-book illustration.\n\nCharacter Bible (already locked into the image — do NOT re-describe, just use names):\n${charManifest}\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}`,
             AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 400
           );
 
@@ -1386,8 +1386,11 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
 
         } else {
           const collContext = collection ? `\nCharacter collection: "${collection.name}". Style: ${collection.styleGuide}.` : "";
+          const charBible = book.characters.length
+            ? `\n\nCharacter Bible:\n${book.characters.map((c) => `— ${c.name}: ${c.desc}`).join("\n")}`
+            : "";
           const reply = await amora(
-            `You are guiding the author through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.${collContext}\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft or generate pages. You CAN generate illustration images — just tell the author to say something like "generate page 3 showing [scene]". Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
+            `You are guiding the author through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.${collContext}${charBible}\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft or generate pages. You CAN generate illustration images — just tell the author to say something like "generate page 3 showing [scene]". Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
           );
           push("amora", reply);
         }
