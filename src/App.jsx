@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import AdminDashboard from "./AdminDashboard";
 
 /* ============================================================
    LITTLE AMOUR BOOKS — rev 2
@@ -1949,6 +1950,7 @@ export default function App() {
   else if (route.page === "author") page = <AuthorPage author={AUTHORS[route.id] || AUTHORS.kirby} go={go} toast={toast} />;
   else if (route.page === "write") page = <WritePage go={go} />;
   else if (route.page === "apply") page = <ApplyPage />;
+  else if (route.page === "admin") return <AdminDashboard onBack={() => go("home")} />;
   else if (route.page === "signin") {
     if (!account) page = <SignInPage onSignIn={(a) => setAccount(a)} />;
     else if (account === "kirby") page = <KirbyStudio go={go} onSignOut={() => { setAccount(null); go("home"); }} />;
@@ -1991,6 +1993,7 @@ export default function App() {
           </p>
         </div>
       </footer>
+      <button onClick={() => go("admin")} style={{ position: "fixed", bottom: 10, right: 14, background: "none", border: "none", color: "#ffffff18", fontSize: 11, cursor: "pointer" }}>admin</button>
       {toastMsg ? <div className="toast" role="status">{toastMsg}</div> : null}
     </div>
   );
