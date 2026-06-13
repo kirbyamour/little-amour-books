@@ -1027,9 +1027,22 @@ function parseLoose(text) {
 }
 
 const KIRBY_SEED = {
+  collections: [
+    {
+      id: "coll_bld", name: "Big Little Days",
+      styleGuide: "Soft watercolour illustration, warm beige/mauve/slate-blue palette, handwritten-style lettering, gentle ink outlines, textured paper background.",
+      modelHint: "flux",
+      characters: [
+        { name: "Mama", desc: "Warm, tired-but-steady mother; dark hair loosely tied back; soft mustard cardigan and a small gold locket. Always gentle toward Little One." },
+        { name: "Little One", desc: "Small child, around 4; dark curls; dusty-rose striped pajamas; carries Moon Bear everywhere. Curious and sensitive." },
+        { name: "Moon Bear", desc: "A moonlight-cream plush bear with a crescent moon stitched over the heart and a worn left ear. Calm, wise, reassuring." },
+      ],
+    },
+  ],
   books: [
     {
       id: "papers", title: "Mama Has Papers Today", status: "published", earnings: 218.4,
+      collectionId: "coll_bld",
       characters: [
         { name: "Mama", desc: "Warm, tired-but-steady mother; dark hair loosely tied back; soft mustard cardigan and a small gold locket. Always gentle toward Little One." },
         { name: "Little One", desc: "Small child, around 4; dark curls; dusty-rose striped pajamas; carries Moon Bear everywhere. Curious and sensitive." },
@@ -1064,6 +1077,7 @@ function KirbyStudio({ go, onSignOut }) {
   const [loaded, setLoaded] = useState(false);
   const [openId, setOpenId] = useState(null);
   const [view, setView] = useState("list"); // list | build | edit
+  const [pickingCollection, setPickingCollection] = useState(false); // collection picker modal
 
   useEffect(() => {
     (async () => {
@@ -1086,17 +1100,46 @@ function KirbyStudio({ go, onSignOut }) {
   const setBook = (patch) =>
     setData((d) => ({ ...d, books: d.books.map((b) => (b.id === openId ? { ...b, ...(typeof patch === "function" ? patch(b) : patch) } : b)) }));
 
-  const startNewBook = () => {
+  const collections = data.collections || [];
+  const setCollections = (patch) => setData((d) => ({ ...d, collections: typeof patch === "function" ? patch(d.collections || []) : patch }));
+
+  const createBookWithCollection = (collId) => {
+    const coll = collections.find((c) => c.id === collId);
     const id = "b" + Date.now();
-    setData((d) => ({ ...d, books: [...d.books, { id, title: "Untitled book", status: "draft", earnings: 0, characters: [], pages: [] }] }));
+    setData((d) => ({
+      ...d,
+      books: [...d.books, {
+        id, title: "Untitled book", status: "draft", earnings: 0, collectionId: collId || null,
+        characters: coll ? coll.characters.map((c) => ({ ...c })) : [],
+        styleGuide: coll ? coll.styleGuide : "",
+        pages: [],
+      }],
+    }));
     setOpenId(id);
+    setPickingCollection(false);
     setView("build");
   };
+
+  const startNewBook = () => {
+    if (collections.length > 0) { setPickingCollection(true); }
+    else { createBookWithCollection(null); }
+  };
+
   const startWithCharacters = (chars) => {
     const id = "b" + Date.now();
     setData((d) => ({ ...d, books: [...d.books, { id, title: "Untitled book", status: "draft", earnings: 0, characters: chars.map((c) => ({ ...c })), pages: [] }] }));
     setOpenId(id);
     setView("build");
+  };
+
+  const saveCollectionFromBook = (bookId) => {
+    const bk = data.books.find((b) => b.id === bookId);
+    if (!bk || !bk.characters.length) return;
+    const name = prompt("Name this character collection:", bk.title + " Universe");
+    if (!name) return;
+    const id = "coll_" + Date.now();
+    setCollections((cs) => [...cs, { id, name, styleGuide: bk.styleGuide || "", modelHint: "auto", characters: bk.characters.map((c) => ({ ...c })) }]);
+    setData((d) => ({ ...d, books: d.books.map((b) => b.id === bookId ? { ...b, collectionId: id } : b) }));
   };
 
   /* ---------------- BOOK LIST ---------------- */
@@ -1105,6 +1148,29 @@ function KirbyStudio({ go, onSignOut }) {
     return (
       <section className="morning page-top">
         <div className="wrap">
+          {/* Collection picker modal */}
+          {pickingCollection ? (
+            <div className="modal-backdrop">
+              <div className="modal-box">
+                <h3>Which universe does this book live in?</h3>
+                <p className="fine">Characters, art style, and colour palette will carry across from the collection you choose.</p>
+                <div className="coll-pick-list">
+                  {collections.map((c) => (
+                    <button key={c.id} className="coll-pick-item" onClick={() => createBookWithCollection(c.id)}>
+                      <strong>{c.name}</strong>
+                      <span>{c.characters.map((ch) => ch.name).join(", ")}</span>
+                    </button>
+                  ))}
+                  <button className="coll-pick-item coll-pick-new" onClick={() => createBookWithCollection(null)}>
+                    <strong>+ New universe</strong>
+                    <span>Start fresh — create new characters and style with Amora</span>
+                  </button>
+                </div>
+                <button className="btn-text soft" onClick={() => setPickingCollection(false)} style={{ marginTop: 10 }}>Cancel</button>
+              </div>
+            </div>
+          ) : null}
+
           <div className="row-between">
             <div><p className="eyebrow plum">Author studio</p><h2>Good morning, Kirby.</h2></div>
             <button className="btn-text" onClick={onSignOut}>Sign out</button>
@@ -1112,26 +1178,44 @@ function KirbyStudio({ go, onSignOut }) {
           <div className="dash-grid">
             <div className="dash-col">
               <h3 className="bd-h">My books</h3>
-              {data.books.map((b) => (
-                <div key={b.id} className="dash-book">
-                  <div>
-                    <strong>{b.title}</strong>
-                    <span className={KCHIP[b.status][0]}>{KCHIP[b.status][1]}</span>
-                    {b.characters && b.characters.length ? <span className="char-pill">{b.characters.length} characters</span> : null}
+              {data.books.map((b) => {
+                const bColl = collections.find((c) => c.id === b.collectionId);
+                return (
+                  <div key={b.id} className="dash-book">
+                    <div>
+                      <strong>{b.title}</strong>
+                      <span className={KCHIP[b.status][0]}>{KCHIP[b.status][1]}</span>
+                      {bColl ? <span className="char-pill">✦ {bColl.name}</span> : null}
+                    </div>
+                    <div className="dash-actions">
+                      <button className="btn-text" onClick={() => { setOpenId(b.id); setView("edit"); }}>Open →</button>
+                      {b.characters && b.characters.length && !b.collectionId ? (
+                        <button className="btn-text soft" onClick={() => saveCollectionFromBook(b.id)}>Save as collection</button>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="dash-actions">
-                    <button className="btn-text" onClick={() => { setOpenId(b.id); setView("edit"); }}>Open →</button>
-                    {b.characters && b.characters.length ? (
-                      <button className="btn-text soft" onClick={() => startWithCharacters(b.characters)}>+ New book, same characters</button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               <button className="btn-gold" style={{ marginTop: 14 }} onClick={startNewBook}>+ Create a new book with Amora</button>
               <p className="fine">Everything you make here saves automatically and waits for you next time.</p>
             </div>
             <div className="dash-col">
-              <h3 className="bd-h">Earnings</h3>
+              <h3 className="bd-h">Character Collections</h3>
+              {collections.length === 0 ? (
+                <p className="fine">Your character universes will appear here. Once you've built your first book's characters with Amora, save them as a collection and reuse them in any future book.</p>
+              ) : collections.map((c) => (
+                <div key={c.id} className="coll-card">
+                  <div className="coll-card-head">
+                    <strong>{c.name}</strong>
+                    <button className="btn-text soft" onClick={() => {
+                      if (window.confirm("Delete this collection?")) setCollections((cs) => cs.filter((x) => x.id !== c.id));
+                    }}>delete</button>
+                  </div>
+                  <p className="fine" style={{ margin: "4px 0 6px" }}>{c.characters.map((ch) => ch.name).join(" · ")}</p>
+                  {c.styleGuide ? <p className="fine coll-style">{c.styleGuide}</p> : null}
+                </div>
+              ))}
+              <h3 className="bd-h" style={{ marginTop: 18 }}>Earnings</h3>
               <div className="earn-card">
                 <p><span>Book royalties</span><span>${royalties.toFixed(2)}</span></p>
                 <p><span>Reader gifts — 100% yours</span><span>$42.00</span></p>
@@ -1147,7 +1231,8 @@ function KirbyStudio({ go, onSignOut }) {
 
   /* ---------------- AMORA BUILD ---------------- */
   if (view === "build") {
-    return <AmoraBuild book={book} setBook={setBook}
+    const activeColl = collections.find((c) => c.id === book?.collectionId) || null;
+    return <AmoraBuild book={book} setBook={setBook} collection={activeColl}
       onGoEditor={(tab) => { setView("edit"); }}
       onBack={() => setView("list")} />;
   }
@@ -1157,7 +1242,7 @@ function KirbyStudio({ go, onSignOut }) {
 }
 
 /* ---------------- Amora guided build ---------------- */
-function AmoraBuild({ book, setBook, onGoEditor, onBack }) {
+function AmoraBuild({ book, setBook, collection, onGoEditor, onBack }) {
   const onDone = () => onGoEditor("pages");
   const [msgs, setMsgs] = useState([
     { role: "amora", text: "Hi Kirby — I'm Amora. Let's make this book together, one gentle step at a time.\n\nTell me what you have so far. It can be anything: just a feeling or an idea, a hard thing you want a child to understand, some page text you've already written, or even images you'd like to use. Where would you like to begin?" },
@@ -1213,8 +1298,44 @@ function AmoraBuild({ book, setBook, onGoEditor, onBack }) {
       } else {
         const convo = msgs.concat({ role: "user", text }).slice(-12)
           .map((m) => `${m.role === "amora" ? "Amora" : "Kirby"}: ${m.text}`).join("\n");
-        // Check if user is asking to save to Character Bible after a vision read
-        if (text.toLowerCase().includes("save") && text.toLowerCase().includes("character")) {
+
+        // Detect image generation requests
+        const isImageReq = /\b(generate|draw|create|make|illustrate|paint|render|show me|picture of|image of)\b/i.test(text)
+          && /\b(page|scene|spread|cover|character|illustration|image|picture|background|setting)\b/i.test(text);
+
+        // Detect save-to-bible request
+        const isSaveBible = text.toLowerCase().includes("save") && (text.toLowerCase().includes("character") || text.toLowerCase().includes("bible"));
+
+        if (isImageReq) {
+          // Build style context from collection or book
+          const styleGuide = (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
+          const charList = ((collection && collection.characters.length ? collection.characters : book.characters) || [])
+            .map((c) => `${c.name}: ${c.desc}`).join("\n");
+          const modelHint = (collection && collection.modelHint) || "auto";
+
+          push("amora", "On it — building that image now…");
+
+          // Ask Amora to write a locked prompt and pick the model
+          const promptRaw = await amora(
+            `The author wants to generate an illustration for their picture book.\n\nTheir request: "${text}"\n\nStyle guide: ${styleGuide}\n\nCharacter Bible:\n${charList || "(none yet — use the style guide only)"}\n\nImage generation hint: "${modelHint}" (flux = painterly/watercolour/illustrated; dalle = clean/bold/graphic/pop/modern; auto = you decide based on style)\n\nReturn ONLY JSON with two keys:\n{"model":"flux" or "dalle","prompt":"A vivid, detailed image generation prompt (150-250 words) that includes: exact art style from the style guide, all relevant characters described precisely as in the Character Bible, the scene, lighting, mood, colour palette, and any text or lettering style. The prompt must ensure visual consistency with existing artwork."}\n\nChoose "flux" for painterly, watercolour, soft, illustrated, storybook, artistic styles. Choose "dalle" for clean, bold, graphic, flat, pop art, minimal, modern, geometric styles.`,
+            AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 1000
+          );
+
+          let imgMeta = { model: modelHint === "auto" ? "flux" : modelHint, prompt: text };
+          try { imgMeta = parseLoose(promptRaw); } catch (_) { /* use defaults */ }
+
+          const imgRes = await fetch("/api/image", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: imgMeta.prompt || text, model: imgMeta.model || "flux" }),
+          });
+          const imgData = await imgRes.json();
+          if (imgData.error) {
+            push("amora", `I couldn't generate that image just now — ${imgData.error}. Check that FAL_API_KEY or OPENAI_API_KEY is set in your Vercel environment variables.`);
+          } else {
+            setMsgs((m) => [...m, { role: "amora", text: "Here it is ✦ Click "Add to book" to place it on a page.", imgUrl: imgData.url, model: imgData.model }]);
+          }
+
+        } else if (isSaveBible) {
           const lastAmoraMsg = [...msgs].reverse().find((m) => m.role === "amora");
           const charText = lastAmoraMsg ? lastAmoraMsg.text : "";
           const saveReply = await amora(
@@ -1230,9 +1351,11 @@ function AmoraBuild({ book, setBook, onGoEditor, onBack }) {
           } catch {
             push("amora", "I wasn't quite sure how to parse those — could you copy the character descriptions into the Character Bible fields in the editor and I'll keep them consistent from there?");
           }
+
         } else {
+          const collContext = collection ? `\nCharacter collection: "${collection.name}". Style: ${collection.styleGuide}.` : "";
           const reply = await amora(
-            `You are guiding Kirby through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft pages. Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
+            `You are guiding the author through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.${collContext}\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft or generate pages. You CAN generate illustration images — just tell the author to say something like "generate page 3 showing [scene]". Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
           );
           push("amora", reply);
         }
@@ -1431,7 +1554,19 @@ function AmoraBuild({ book, setBook, onGoEditor, onBack }) {
             {msgs.map((m, i) => (
               <div key={i} className={"abubble " + m.role}>
                 {m.role === "amora" ? <span className="amora-name"><MoonMark size={15} /> Amora</span> : null}
-                {m.text.split("\n").map((l, j) => (l ? <p key={j}>{l}</p> : <br key={j} />))}
+                {m.imgUrl ? (
+                  <div className="gen-img-wrap">
+                    <img src={m.imgUrl} className="gen-img" alt="Amora-generated illustration" />
+                    <div className="gen-img-actions">
+                      <span className="gen-badge">{m.model === "dalle" ? "DALL-E 3" : "Flux"}</span>
+                      <button className="btn-gold" style={{ fontSize: 13, padding: "6px 12px" }} onClick={() => {
+                        setBook((b) => ({ ...b, pages: [...b.pages, { id: newId(), text: "", img: m.imgUrl }] }));
+                        push("amora", "Added to your book as a new page — open Page Editor to place the text.");
+                      }}>+ Add to book</button>
+                    </div>
+                  </div>
+                ) : null}
+                {m.text ? m.text.split("\n").map((l, j) => (l ? <p key={j}>{l}</p> : <br key={j} />)) : null}
               </div>
             ))}
             {busy ? <div className="abubble amora"><span className="amora-name"><MoonMark size={15} /> Amora</span><p className="typing">creating your book<i>.</i><i>.</i><i>.</i></p></div> : null}
@@ -2019,6 +2154,26 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* dashboard */
 .dash-grid { display: grid; grid-template-columns: 1fr 1.15fr; gap: 36px; margin-top: 18px; align-items: start; }
+/* Modal */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(30,24,18,0.45); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-box { background: ${P.paper}; border-radius: 18px; padding: 28px; max-width: 480px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,0.18); }
+.modal-box h3 { font-family: var(--display); margin: 0 0 6px; }
+.coll-pick-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.coll-pick-item { background: ${P.cream}; border: 1.5px solid #E3D3BC; border-radius: 12px; padding: 14px 16px; text-align: left; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.coll-pick-item:hover { border-color: ${P.mauve}; background: #F9F3EE; }
+.coll-pick-item strong { display: block; font-family: var(--display); font-size: 15px; margin-bottom: 3px; }
+.coll-pick-item span { font-size: 13px; color: ${P.inkSoft}; }
+.coll-pick-new { border-style: dashed; }
+/* Collection cards on dashboard */
+.coll-card { background: ${P.cream}; border: 1px solid #EBDFCC; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+.coll-card-head { display: flex; justify-content: space-between; align-items: center; }
+.coll-card-head strong { font-family: var(--display); font-size: 15px; }
+.coll-style { opacity: 0.7; font-style: italic; }
+/* Generated image in chat */
+.gen-img-wrap { margin: 6px 0 10px; }
+.gen-img { width: 100%; border-radius: 10px; display: block; }
+.gen-img-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.gen-badge { font-size: 11px; font-weight: 700; background: ${P.night}; color: ${P.cream}; border-radius: 999px; padding: 3px 9px; letter-spacing: 0.04em; }
 .dash-book { display: flex; justify-content: space-between; align-items: center; gap: 14px; background: ${P.cream}; border: 1px solid #EBDFCC; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
 .dash-book strong { font-family: var(--display); font-size: 16px; display: block; margin-bottom: 4px; }
 .st { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 10px; border-radius: 999px; }
