@@ -1,6 +1,9 @@
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "functions": {
+    "api/image.js": { "maxDuration": 60 },
+    "api/chat.js": { "maxDuration": 60 }
+  }
 }

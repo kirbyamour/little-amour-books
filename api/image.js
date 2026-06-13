@@ -27,8 +27,7 @@ export default async function handler(req, res) {
     const falBody = {
       prompt,
       image_size: "portrait_4_3",
-      num_inference_steps: 28,
-      guidance_scale: 3.5,
+      num_inference_steps: 4,
       num_images: 1,
       enable_safety_checker: true,
     };
@@ -39,7 +38,7 @@ export default async function handler(req, res) {
     // Negative prompt: block style drift, character changes, unsafe content
     if (negative_prompt) falBody.negative_prompt = negative_prompt;
 
-    const r = await fetch("https://fal.run/fal-ai/flux/dev", {
+    const r = await fetch("https://fal.run/fal-ai/flux/schnell", {
       method: "POST",
       headers: {
         "Authorization": `Key ${falKey}`,
