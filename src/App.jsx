@@ -1079,6 +1079,7 @@ function KirbyStudio({ go, onSignOut }) {
   const [openId, setOpenId] = useState(null);
   const [view, setView] = useState("list"); // list | build | edit
   const [pickingCollection, setPickingCollection] = useState(false); // collection picker modal
+  const [savedFlash, setSavedFlash] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -1092,7 +1093,11 @@ function KirbyStudio({ go, onSignOut }) {
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(async () => {
-      try { await window.storage.set("lab:studio:kirby:v2", JSON.stringify(data)); } catch (e) { /* non-fatal */ }
+      try {
+        await window.storage.set("lab:studio:kirby:v2", JSON.stringify(data));
+        setSavedFlash(true);
+        setTimeout(() => setSavedFlash(false), 2000);
+      } catch (e) { /* non-fatal */ }
     }, 700);
     return () => clearTimeout(t);
   }, [data, loaded]);
@@ -1234,17 +1239,17 @@ function KirbyStudio({ go, onSignOut }) {
   /* ---------------- AMORA BUILD ---------------- */
   if (view === "build") {
     const activeColl = collections.find((c) => c.id === book?.collectionId) || null;
-    return <AmoraBuild book={book} setBook={setBook} collection={activeColl}
+    return <AmoraBuild book={book} setBook={setBook} collection={activeColl} savedFlash={savedFlash}
       onGoEditor={(tab) => { setView("edit"); }}
       onBack={() => setView("list")} />;
   }
 
   /* ---------------- BOOK EDITOR ---------------- */
-  return <BookEditor book={book} setBook={setBook} onBack={() => setView("list")} onSignOut={onSignOut} onAmora={() => setView("build")} />;
+  return <BookEditor book={book} setBook={setBook} onBack={() => setView("list")} onSignOut={onSignOut} onAmora={() => setView("build")} savedFlash={savedFlash} />;
 }
 
 /* ---------------- Amora guided build ---------------- */
-function AmoraBuild({ book, setBook, collection, onGoEditor, onBack }) {
+function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack }) {
   const onDone = () => onGoEditor("pages");
   const [msgs, setMsgs] = useState([
     { role: "amora", text: "Hi Kirby — I'm Amora. Let's make this book together, one gentle step at a time.\n\nTell me what you have so far. It can be anything: just a feeling or an idea, a hard thing you want a child to understand, some page text you've already written, or even images you'd like to use. Where would you like to begin?" },
@@ -1317,14 +1322,15 @@ function AmoraBuild({ book, setBook, collection, onGoEditor, onBack }) {
 
           push("amora", "On it — building that image now…");
 
-          // Step 1: Ask Amora ONLY for the scene description + model choice.
-          // We inject the full character manifest ourselves so nothing drifts.
+          // Step 1: Ask Amora ONLY for the scene description.
+          // Model is always Flux (seed-locked for consistency). We inject the full
+          // character manifest ourselves so nothing drifts from page to page.
           const sceneRaw = await amora(
-            `The author wants to generate a picture-book illustration.\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"model":"flux" or "dalle","scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}\n\nChoose "flux" for painterly, watercolour, soft, illustrated, storybook, artistic, gouache, mixed-media styles.\nChoose "dalle" for clean, bold, graphic, flat, pop art, minimal, modern, geometric, digital styles.\nHint from style guide: ${styleGuide}`,
-            AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 600
+            `The author wants to generate a picture-book illustration.\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}`,
+            AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 400
           );
 
-          let sceneMeta = { model: modelHint === "auto" ? "flux" : modelHint, scene: text };
+          let sceneMeta = { scene: text };
           try { sceneMeta = parseLoose(sceneRaw); } catch (_) { /* use defaults */ }
 
           // Step 2: Build the locked consistency manifest client-side — always injected, never recalled from memory
@@ -1352,12 +1358,7 @@ function AmoraBuild({ book, setBook, collection, onGoEditor, onBack }) {
 
           const imgRes = await fetch("/api/image", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              prompt: lockedPrompt,
-              model: sceneMeta.model || (modelHint === "auto" ? "flux" : modelHint),
-              seed,
-              negative_prompt: negativePrompt,
-            }),
+            body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: negativePrompt }),
           });
           const imgData = await imgRes.json();
           if (imgData.error) {
@@ -1573,6 +1574,7 @@ function AmoraBuild({ book, setBook, collection, onGoEditor, onBack }) {
       <div className="wrap">
         <div className="row-between">
           <button className="btn-text" onClick={onBack}>← My books</button>
+          <span className={`saved-flash${savedFlash ? " visible" : ""}`}>✓ Saved</span>
         </div>
         <h2 style={{ marginBottom: 6 }}>{book.title}</h2>
         <div className="studio-nav">
@@ -1677,7 +1679,7 @@ function AmoraBuild({ book, setBook, collection, onGoEditor, onBack }) {
 }
 
 /* ---------------- Book editor: drag-drop pages, per-page chat, bible, consistency ---------------- */
-function BookEditor({ book, setBook, onBack, onSignOut, onAmora }) {
+function BookEditor({ book, setBook, onBack, onSignOut, onAmora, savedFlash }) {
   const [tab, setTab] = useState("pages");
   const [report, setReport] = useState(null);
   const [checking, setChecking] = useState(false);
@@ -1735,7 +1737,10 @@ function BookEditor({ book, setBook, onBack, onSignOut, onAmora }) {
       <div className="wrap">
         <div className="row-between">
           <button className="btn-text" onClick={onBack}>← My books</button>
-          <button className="btn-text" onClick={onSignOut}>Sign out</button>
+          <span style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <span className={`saved-flash${savedFlash ? " visible" : ""}`}>✓ Saved</span>
+            <button className="btn-text" onClick={onSignOut}>Sign out</button>
+          </span>
         </div>
         <input className="ed-title" value={book.title} onChange={(e) => setBook({ title: e.target.value })} aria-label="Book title" />
         <p style={{ margin: "4px 0 10px" }}>
@@ -2256,6 +2261,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .chat-img-preview span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-img-preview button { background: none; border: none; cursor: pointer; font-size: 14px; color: ${P.mauve}; padding: 2px 6px; }
 
+.saved-flash { font-size: 13px; font-weight: 600; color: ${P.sage}; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+.saved-flash.visible { opacity: 1; }
 .studio-nav { display: flex; gap: 0; margin: 0 0 20px; border-bottom: 2px solid #E3D3BC; }
 .studio-tab { background: none; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; padding: 10px 20px; font-family: var(--display); font-size: 15px; font-weight: 600; color: ${P.inkSoft}; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
 .studio-tab:hover { color: ${P.ink}; }
