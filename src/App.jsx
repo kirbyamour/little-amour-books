@@ -1593,6 +1593,7 @@ function BookEditor({ book, setBook, onBack, onSignOut, onAmora }) {
                       {book.pages.length > 1 ? <button className="btn-text soft" onClick={() => removePage(p.id)}>remove</button> : null}
                     </span>
                   </div>
+                  {p.img ? <img src={p.img} alt={"Page " + (i + 1)} className="ed-page-img" /> : null}
                   <textarea rows={2} value={p.text} onChange={(e) => setPage(p.id, { text: e.target.value })} placeholder="Write this page, or build it with Amora." />
                 </div>
               ))}
@@ -2030,6 +2031,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .ed-page { background: ${P.cream}; border: 1px solid #EBDFCC; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
 .ed-page-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
 .ed-page-head span { font-family: var(--display); font-size: 15px; color: ${P.mauve}; }
+.ed-page-img { width: 100%; max-height: 340px; object-fit: contain; border-radius: 8px; margin-bottom: 10px; background: ${P.paper}; display: block; }
 .ed-page textarea { width: 100%; font-family: var(--body); font-size: 15px; color: ${P.ink}; background: ${P.paper}; border: 1.5px solid #E9DCC8; border-radius: 8px; padding: 10px 12px; resize: vertical; }
 .ai-notes { background: ${P.paperWarm}; border-left: 4px solid ${P.gold}; border-radius: 12px; padding: 16px 18px; margin-top: 16px; font-size: 14.5px; white-space: pre-wrap; line-height: 1.6; }
 .st-rev { background: #F4E5C8; color: ${P.goldDeep}; }
