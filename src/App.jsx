@@ -1147,7 +1147,9 @@ function KirbyStudio({ go, onSignOut }) {
 
   /* ---------------- AMORA BUILD ---------------- */
   if (view === "build") {
-    return <AmoraBuild book={book} setBook={setBook} onDone={() => setView("edit")} onBack={() => setView("list")} />;
+    return <AmoraBuild book={book} setBook={setBook}
+      onGoEditor={(tab) => { setView("edit"); }}
+      onBack={() => setView("list")} />;
   }
 
   /* ---------------- BOOK EDITOR ---------------- */
@@ -1155,7 +1157,8 @@ function KirbyStudio({ go, onSignOut }) {
 }
 
 /* ---------------- Amora guided build ---------------- */
-function AmoraBuild({ book, setBook, onDone, onBack }) {
+function AmoraBuild({ book, setBook, onGoEditor, onBack }) {
+  const onDone = () => onGoEditor("pages");
   const [msgs, setMsgs] = useState([
     { role: "amora", text: "Hi Kirby — I'm Amora. Let's make this book together, one gentle step at a time.\n\nTell me what you have so far. It can be anything: just a feeling or an idea, a hard thing you want a child to understand, some page text you've already written, or even images you'd like to use. Where would you like to begin?" },
   ]);
@@ -1416,10 +1419,13 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
       <div className="wrap">
         <div className="row-between">
           <button className="btn-text" onClick={onBack}>← My books</button>
-          <button className="btn-text" onClick={onDone}>Skip to the book →</button>
         </div>
-        <p className="eyebrow plum">Creating with Amora</p>
-        <h2>{book.title}</h2>
+        <h2 style={{ marginBottom: 6 }}>{book.title}</h2>
+        <div className="studio-nav">
+          <button className="studio-tab on">Amora</button>
+          <button className="studio-tab" onClick={() => onGoEditor("pages")}>Page Editor</button>
+          <button className="studio-tab" onClick={() => onGoEditor("bible")}>Characters</button>
+        </div>
         <div className="amora-chat">
           <div className="amora-scroll" ref={scroller}>
             {msgs.map((m, i) => (
@@ -1566,15 +1572,15 @@ function BookEditor({ book, setBook, onBack, onSignOut, onAmora }) {
           <button className="btn-text" onClick={onSignOut}>Sign out</button>
         </div>
         <input className="ed-title" value={book.title} onChange={(e) => setBook({ title: e.target.value })} aria-label="Book title" />
-        <p style={{ margin: "4px 0 14px" }}>
+        <p style={{ margin: "4px 0 10px" }}>
           <span className={KCHIP[book.status][0]}>{KCHIP[book.status][1]}</span>
           {book.status === "published" ? <span className="fine" style={{ marginLeft: 12 }}>Edits to a published book go back through review.</span> : null}
         </p>
 
-        <div className="ed-tabs">
-          <button className={tab === "pages" ? "on" : ""} onClick={() => setTab("pages")}>Pages</button>
-          <button className={tab === "bible" ? "on" : ""} onClick={() => setTab("bible")}>Character Bible</button>
-          <button className="ed-amora" onClick={onAmora}><MoonMark size={14} /> Continue with Amora</button>
+        <div className="studio-nav">
+          <button className="studio-tab" onClick={onAmora}>Amora</button>
+          <button className={`studio-tab${tab === "pages" ? " on" : ""}`} onClick={() => setTab("pages")}>Page Editor</button>
+          <button className={`studio-tab${tab === "bible" ? " on" : ""}`} onClick={() => setTab("bible")}>Characters</button>
         </div>
 
         {tab === "pages" ? (
@@ -2064,10 +2070,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .chat-img-preview span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-img-preview button { background: none; border: none; cursor: pointer; font-size: 14px; color: ${P.mauve}; padding: 2px 6px; }
 
-.ed-tabs { display: flex; gap: 8px; align-items: center; margin: 6px 0 18px; flex-wrap: wrap; }
-.ed-tabs button { background: ${P.cream}; border: 1px solid #E3D3BC; color: ${P.inkSoft}; border-radius: 999px; padding: 8px 16px; font-size: 14px; font-weight: 600; }
-.ed-tabs button.on { background: ${P.night}; color: ${P.cream}; border-color: ${P.night}; }
-.ed-tabs .ed-amora { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; background: ${P.gold}; color: ${P.nightDeep}; border-color: ${P.gold}; font-weight: 700; }
+.studio-nav { display: flex; gap: 0; margin: 0 0 20px; border-bottom: 2px solid #E3D3BC; }
+.studio-tab { background: none; border: none; border-bottom: 3px solid transparent; margin-bottom: -2px; padding: 10px 20px; font-family: var(--display); font-size: 15px; font-weight: 600; color: ${P.inkSoft}; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.studio-tab:hover { color: ${P.ink}; }
+.studio-tab.on { color: ${P.mauve}; border-bottom-color: ${P.mauve}; }
 
 .drag-handle { cursor: grab; user-select: none; }
 .ed-page[draggable=true]:active { cursor: grabbing; opacity: .7; }
