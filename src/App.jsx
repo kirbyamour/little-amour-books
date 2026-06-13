@@ -1234,7 +1234,7 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
       else failed++;
     }
     if (!added.length) {
-      push("amora", "I could see the files but couldn't read them in this preview. This sometimes happens in the in-chat preview — the upload works reliably once the site is running on its own. For now, try one or two pages at a time, or smaller image files.");
+      push("amora", "I could see the files but couldn't load them. Try a smaller batch — upload 5–10 pages at a time — or resize the images to under 2MB each before uploading.");
       return;
     }
     setUploads((u) => [...u, ...added]);
@@ -1320,12 +1320,18 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
       // Synthesis pass: build Character Bible + reconcile any pasted manuscript with detected page text
       const perPage = analyses.map((a, i) => `Page ${i + 1}: text="${a.text}" | characters=${(a.characters || []).join(", ")} | scene=${a.scene}`).join("\n");
       const styleNotes = analyses.map((a) => a.style).filter(Boolean).slice(0, 6).join(" | ");
-      const synthRaw = await amora(
-        `A survivor author uploaded ${uploads.length} finished picture-book pages. Here is what I read from each:\n${perPage}\n\n${manuscript.trim() ? `She also pasted her own manuscript text below. Where a page's printed text is blank or unclear, use the matching manuscript line. Preserve her exact words — never rewrite.\nMANUSCRIPT:\n"""${manuscript.trim()}"""\n` : ""}\nArt/lettering style notes across pages: ${styleNotes}\n\nReturn ONLY JSON:\n{"title":"the book's title if visible on a page, else best guess","characters":[{"name":"","desc":"consistent visual + emotional description built from how this character actually appears across the pages"}],"styleGuide":"a short locked style + font description for future pages and the cover","pages":[{"n":1,"text":"final text for page 1"}],"note":"one warm sentence on what you found"}\nInclude one pages entry per uploaded page, in order. Merge recurring characters into one bible entry each.`,
-        AMORA_SYS + " STRUCTURED MODE: output valid JSON only.",
-        4000
-      );
-      const j = parseLoose(synthRaw);
+      let j = {};
+      try {
+        const synthRaw = await amora(
+          `A survivor author uploaded ${uploads.length} finished picture-book pages. Here is what I read from each:\n${perPage}\n\n${manuscript.trim() ? `She also pasted her own manuscript text below. Where a page's printed text is blank or unclear, use the matching manuscript line. Preserve her exact words — never rewrite.\nMANUSCRIPT:\n"""${manuscript.trim()}"""\n` : ""}\nArt/lettering style notes across pages: ${styleNotes}\n\nReturn ONLY JSON:\n{"title":"the book's title if visible on a page, else best guess","characters":[{"name":"","desc":"consistent visual + emotional description built from how this character actually appears across the pages"}],"styleGuide":"a short locked style + font description for future pages and the cover","pages":[{"n":1,"text":"final text for page 1"}],"note":"one warm sentence on what you found"}\nInclude one pages entry per uploaded page, in order. Merge recurring characters into one bible entry each.`,
+          AMORA_SYS + " STRUCTURED MODE: output valid JSON only.",
+          4000
+        );
+        j = parseLoose(synthRaw);
+      } catch (_synthErr) {
+        // Synthesis parse failed — continue with vision-only data so the editor always opens
+        j = {};
+      }
       const byN = {}; (j.pages || []).forEach((p) => { byN[p.n] = p.text; });
       setBook((b) => ({
         ...b,
@@ -1334,11 +1340,11 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
         styleGuide: j.styleGuide || b.styleGuide || "",
         pages: uploads.map((u, i) => ({ id: newId(), text: byN[i + 1] || (analyses[i] && analyses[i].text) || "", img: u.dataUrl })),
       }));
-      push("amora", `${j.note || "All done."} I placed your ${uploads.length} finished pages in order, kept your words on each one, built a Character Bible from how everyone actually looks across the pages, and saved a style + font note so anything new we make matches. Open the book to see it all — and run the consistency check when you're ready.`);
+      push("amora", `${j.note || "All done — your pages are in."} I placed your ${uploads.length} finished pages in order and kept your words on each one. Open the book to see everything — and run the consistency check when you're ready.`);
       setTimeout(onDone, 1100);
     } catch (e) {
       const msg = (e && e.message) ? e.message : "";
-      push("amora", `I couldn't finish reading the pages just now${msg ? ` — ${msg}` : ""}. Nothing was lost. Try clicking "Build the book from my uploads" again. If you have a lot of pages, try uploading 10 at a time so I can read each batch fully.`);
+      push("amora", `I couldn't finish reading the pages just now${msg ? ` — ${msg}` : ""}. Nothing was lost — click "Build the book from my uploads" to try again.`);
     }
     setBusy(false);
   };
@@ -1367,7 +1373,7 @@ function AmoraBuild({ book, setBook, onDone, onBack }) {
                 {m.text.split("\n").map((l, j) => (l ? <p key={j}>{l}</p> : <br key={j} />))}
               </div>
             ))}
-            {busy ? <div className="abubble amora"><span className="amora-name"><MoonMark size={15} /> Amora</span><p className="typing">thinking with you<i>.</i><i>.</i><i>.</i></p></div> : null}
+            {busy ? <div className="abubble amora"><span className="amora-name"><MoonMark size={15} /> Amora</span><p className="typing">creating your book<i>.</i><i>.</i><i>.</i></p></div> : null}
           </div>
           <div className="amora-quick">
             {quick.map((q) => (
@@ -1976,8 +1982,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .abubble.user { background: ${P.night}; color: ${P.cream}; border-bottom-right-radius: 4px; align-self: flex-end; }
 .abubble p { margin-bottom: 5px; } .abubble p:last-child { margin-bottom: 0; }
 .amora-name { display: inline-flex; align-items: center; gap: 6px; font-family: var(--display); font-size: 14px; color: ${P.mauve}; margin-bottom: 5px; }
-.typing i { animation: blink 1.2s infinite; } .typing i:nth-child(2){animation-delay:.2s} .typing i:nth-child(3){animation-delay:.4s}
-@keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+.typing { font-weight: 600; letter-spacing: 0.01em; }
+.typing i { animation: blink 1.4s infinite; font-style: normal; font-size: 1.3em; font-weight: 700; vertical-align: middle; line-height: 1; } .typing i:nth-child(2){animation-delay:.25s} .typing i:nth-child(3){animation-delay:.5s}
+@keyframes blink { 0%,70%,100%{opacity:.15; transform:translateY(0)} 35%{opacity:1; transform:translateY(-3px)} }
 .amora-quick { display: flex; flex-wrap: wrap; gap: 7px; padding: 0 18px 12px; }
 .amora-quick button { background: ${P.paper}; border: 1px solid ${P.mauve}; color: ${P.plum || P.mauve}; border-radius: 999px; padding: 6px 13px; font-size: 12.5px; color: ${P.mauve}; }
 .amora-quick button:hover:not(:disabled) { background: ${P.paperWarm}; }
