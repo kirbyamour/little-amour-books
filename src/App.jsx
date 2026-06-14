@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
+import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS } from "./Bookstore";
 
 /* ============================================================
    LITTLE AMOUR BOOKS — rev 2
@@ -15,10 +16,11 @@ const P = {
 };
 
 /* ---------------- Catalogue ---------------- */
-const BOOKS = [
+const CORE_BOOKS = [
   {
     id: "papers", title: "Mama Has Papers Today", author: "kirby", authorName: "Kirby Amour",
     age: "Ages 3–6", price: 14.99, motif: "moon", grad: ["#2A2150", "#4A3B6E"], status: "available",
+    theme: "court", themeBadge: "Court & Legal",
     tagline: "A gentle story about big changes, brave hearts, and finding safety.",
     adult: "Family court. Legal paperwork spread across the kitchen table. A mother carrying custody stress while her child quietly watches — and wonders if the worry is somehow their fault.",
     child: "Little One sees Mama's serious papers and worries they did something wrong. With help from Mama and Moon Bear, Little One learns that grown-up papers are not theirs to carry — and love is still for them.",
@@ -28,6 +30,7 @@ const BOOKS = [
   {
     id: "bluebag", title: "The Night We Packed the Blue Bag", author: "mara", authorName: "Mara Voss",
     age: "Ages 4–7", price: 14.99, motif: "bag", grad: ["#1E3A52", "#3E6B7E"], status: "coming",
+    theme: "safe-home", themeBadge: "Safe Home",
     tagline: "A story about leaving bravely, and arriving somewhere soft.",
     adult: "Leaving an unsafe home. Relocation, shelters, staying with family — the night a mother decides that somewhere else is safer, and a child needs the move to feel like courage, not catastrophe.",
     child: "One night, Mama says it's time for a brave adventure. They pack the blue bag with the most important things — and discover that home isn't a place you leave. It's something you carry, together.",
@@ -37,6 +40,7 @@ const BOOKS = [
   {
     id: "brave", title: "Brave Is a Quiet Thing", author: "june", authorName: "June Ellery",
     age: "Ages 3–6", price: 13.99, motif: "lantern", grad: ["#4A2E3E", "#7A4E5C"], status: "coming",
+    theme: "big-feelings", themeBadge: "Big Feelings",
     tagline: "A small lantern, a big feeling, and the truth about courage.",
     adult: "Anxiety after upheaval. Children who go quiet, cling harder, or startle easily after a hard season — and parents who want to honor the fear without feeding it.",
     child: "Pip thinks brave means being loud and big and never scared. But holding Mama's hand, trying again, and whispering 'I'm here' to a worried friend turn out to be the bravest things of all.",
@@ -44,6 +48,7 @@ const BOOKS = [
     note: "Ask 'what was your quiet-brave today?' at bedtime. It builds a vocabulary for courage that fits in small pockets.",
   },
 ];
+const BOOKS = [...CORE_BOOKS, ...PLACEHOLDER_BOOKS];
 
 const AUTHORS = {
   kirby: {
@@ -130,9 +135,33 @@ function Lantern({ size = 30, color = P.gold }) {
     </svg>
   );
 }
+function Heart({ size = 30, color = "#E5AC9F" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" fill={color} />
+    </svg>
+  );
+}
+function House({ size = 30, color = "#6A8F7A" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V9.5Z" fill={color} opacity="0.9" />
+    </svg>
+  );
+}
+function CloudIcon({ size = 30, color = "#A0B4CC" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" fill={color} />
+    </svg>
+  );
+}
 function Motif({ kind, size }) {
   if (kind === "bag") return <Bag size={size} />;
   if (kind === "lantern") return <Lantern size={size} />;
+  if (kind === "heart") return <Heart size={size} />;
+  if (kind === "house") return <House size={size} color={size > 40 ? "#6A8F7A" : "rgba(255,249,240,0.85)"} />;
+  if (kind === "cloud") return <CloudIcon size={size} />;
   return <Moon size={size} color="#F2CFC5" />;
 }
 
@@ -1942,7 +1971,10 @@ export default function App() {
 
   let page = null;
   if (route.page === "home") page = <HomePage go={go} />;
-  else if (route.page === "books") page = <BooksPage go={go} />;
+  else if (route.page === "store") page = <StoreLanding go={go} books={BOOKS} />;
+  else if (route.page === "books") page = <BooksShop go={go} books={BOOKS} />;
+  else if (route.page === "packs") page = <PacksPage go={go} books={BOOKS} />;
+  else if (route.page === "pack") page = <PackPage packId={route.id} go={go} books={BOOKS} />;
   else if (route.page === "book") page = <BookPage book={BOOKS.find((b) => b.id === route.id) || BOOKS[0]} go={go} toast={toast} />;
   else if (route.page === "checkout") page = <CheckoutPage book={BOOKS.find((b) => b.id === route.id) || BOOKS[0]} go={go} onComplete={completeOrder} />;
   else if (route.page === "thanks") page = <ThanksPage order={order} go={go} />;
@@ -1958,8 +1990,12 @@ export default function App() {
   }
 
   const NAV = [
-    ["home", "Home"], ["books", "Books"], ["authors", "Authors"],
-    ["write", "Write with us"], ["apply", "Apply"],
+    ["home", "Home"],
+    ["store", "Shop"],
+    ["packs", "Book Packs"],
+    ["books", "All Books"],
+    ["authors", "Authors"],
+    ["write", "Become an Author"],
   ];
 
   return (
@@ -2389,4 +2425,6 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .nav-link { padding: 7px 8px; font-size: 13px; }
   .brand span { display: none; }
 }
+
+${STORE_CSS}
 `;
