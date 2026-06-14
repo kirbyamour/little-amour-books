@@ -1851,6 +1851,18 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
             ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
             : "(no named characters — environment/setting only)";
 
+          const pageNum = book.pages.length + 1;
+          // Derive a page number style that fits the book's visual aesthetic
+          const pgNumStyle = (() => {
+            const sg = styleGuide.toLowerCase();
+            if (sg.includes("watercolour") || sg.includes("watercolor") || sg.includes("painted")) return "a small handwritten-style numeral in the bottom corner, in the book's ink colour, matching the painterly aesthetic";
+            if (sg.includes("ink") || sg.includes("pen") || sg.includes("sketch")) return "a small inked numeral in the bottom corner, matching the line-art style of the book";
+            if (sg.includes("flat") || sg.includes("vector") || sg.includes("minimal")) return "a small clean sans-serif numeral in the bottom corner, in a muted tone from the book's palette";
+            if (sg.includes("vintage") || sg.includes("retro") || sg.includes("classic")) return "a small vintage-style numeral in the bottom corner, in a warm sepia or aged tone";
+            if (sg.includes("collage") || sg.includes("mixed media")) return "a small hand-stamped or collaged numeral in the bottom corner";
+            if (sg.includes("digital") || sg.includes("bright") || sg.includes("bold")) return "a small bold rounded numeral in the bottom corner, in a complementary colour from the palette";
+            return "a small, gentle numeral in the bottom corner styled to match the book's art medium and colour palette";
+          })();
           const lockedPrompt = [
             `STYLE (locked, must not change between pages): ${styleGuide}`,
             ``,
@@ -1859,7 +1871,9 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
             ``,
             `SCENE (this page only): ${sceneMeta.scene || text}`,
             ``,
-            `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${book.pages.length + 1} of a series; visual consistency with all other pages is essential.`,
+            `PAGE NUMBER: In the bottom corner of this illustration, include the numeral ${pageNum} as ${pgNumStyle}. The number should feel like a natural part of the illustration, not a label imposed on top.`,
+            ``,
+            `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages is essential.`,
           ].join("\n");
 
           // Negative prompt — what must never change or appear
