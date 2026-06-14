@@ -223,3 +223,68 @@ create table if not exists proposed_categories (
   reviewed_at timestamptz,
   created_at timestamptz default now()
 );
+
+-- ============================================================
+-- ADMIN DASHBOARD — Extended Tables
+-- Run this in Supabase SQL Editor
+-- ============================================================
+
+-- Author applications (from "Become an Author" form)
+create table if not exists author_applications (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null,
+  pen_name text,
+  stage text,
+  theme text,
+  suggested_theme_name text,
+  book_title text,
+  book_idea text,
+  status text default 'new' check (status in ('new','reviewing','approved','rejected','waitlisted')),
+  admin_note text,
+  reviewed_at timestamptz,
+  created_at timestamptz default now()
+);
+
+-- Email subscribers (from store email capture)
+create table if not exists email_subscribers (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  source text default 'store',
+  created_at timestamptz default now()
+);
+
+-- Amora chat logs
+create table if not exists chat_logs (
+  id uuid primary key default gen_random_uuid(),
+  session_id text,
+  book_id text,
+  messages jsonb,
+  message_count int default 0,
+  created_at timestamptz default now()
+);
+
+-- Sponsor CRM (relationship tracking)
+create table if not exists sponsor_crm (
+  id uuid primary key default gen_random_uuid(),
+  company_name text not null,
+  contact_name text,
+  contact_email text,
+  package text,
+  amount numeric(10,2),
+  status text default 'prospect' check (status in ('prospect','contacted','negotiating','active','renewal','closed')),
+  renewal_date date,
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- Page / book view analytics
+create table if not exists page_views (
+  id uuid primary key default gen_random_uuid(),
+  page text not null,
+  book_id text,
+  pack_id text,
+  referrer text,
+  created_at timestamptz default now()
+);

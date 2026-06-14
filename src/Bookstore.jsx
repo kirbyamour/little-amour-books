@@ -1,3 +1,4 @@
+import { supabase } from "./supabaseClient";
 import React, { useState } from "react";
 
 /* ============================================================
@@ -641,7 +642,14 @@ function EmailCapture() {
             </div>
             <form
               className="bs-email-form"
-              onSubmit={e => { e.preventDefault(); if (email) setDone(true); }}
+              onSubmit={async e => {
+                e.preventDefault();
+                if (!email) return;
+                try {
+                  await supabase.from("email_subscribers").upsert({ email: email.trim(), source: "store" }, { onConflict: "email" });
+                } catch (ex) { /* non-fatal */ }
+                setDone(true);
+              }}
             >
               <input
                 type="email"

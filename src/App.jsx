@@ -851,6 +851,20 @@ function ApplyPage() {
       return;
     }
     setErr("");
+    // Save full application to author_applications table
+    try {
+      await supabase.from("author_applications").insert({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        pen_name: form.pen.trim() || null,
+        stage: form.stage || null,
+        theme: form.theme || null,
+        suggested_theme_name: form.theme === "suggest-new" ? form.suggestThemeName.trim() || null : null,
+        book_title: null,
+        book_idea: form.issue.trim() || null,
+        status: "new",
+      });
+    } catch (e) { /* non-fatal */ }
     // If suggesting a new theme, save it to Supabase for admin review
     if (form.theme === "suggest-new" && form.suggestThemeName.trim()) {
       try {
