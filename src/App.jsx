@@ -2,6 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
 import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS } from "./Bookstore";
 import { supabase } from "./supabaseClient";
+import {
+  TermsOfSalePage, RefundPolicyPage, DigitalLicensePage, ShippingPolicyPage,
+  PrivacyPolicyPage, WebsiteTermsPage, DMCAPolicyPage, AccessibilityPage,
+  ReviewsPolicyPage, PreorderPolicyPage,
+  PolicyFooterLinks, DigitalProductNotice, PhysicalProductNotice,
+  CheckoutPolicyLinks, POLICY_VERSION,
+} from "./PolicyPages";
+import { RefundRequestForm } from "./RefundRequestForm";
 import PublishingModule from "./Publishing";
 
 /* ============================================================
@@ -578,6 +586,7 @@ function BookPage({ book, go, toast, addToCart }) {
             <div className="chips">{book.helps.map((h) => <span key={h} className="chip">{h}</span>)}</div>
             <h3 className="bd-h">A word for caregivers</h3>
             <p className="caregiver">{book.note}</p>
+            <DigitalProductNotice />
             <div className="buy-row">
               {coming ? (
                 <button className="btn-gold" onClick={() => toast("This book is in the studio now. In production this joins a notify-me list — we'll let you know the moment it launches.")}>
@@ -2752,6 +2761,18 @@ export default function App() {
   else if (route.page === "write") page = <WritePage go={go} />;
   else if (route.page === "apply") page = <ApplyPage />;
   else if (route.page === "legal") page = <AuthorLegalPage go={go} />;
+  else if (route.page === "policy-terms") page = <TermsOfSalePage go={go} />;
+  else if (route.page === "policy-refund") page = <RefundPolicyPage go={go} />;
+  else if (route.page === "policy-license") page = <DigitalLicensePage go={go} />;
+  else if (route.page === "policy-shipping") page = <ShippingPolicyPage go={go} />;
+  else if (route.page === "policy-privacy") page = <PrivacyPolicyPage go={go} />;
+  else if (route.page === "policy-website-terms") page = <WebsiteTermsPage go={go} />;
+  else if (route.page === "policy-dmca") page = <DMCAPolicyPage go={go} />;
+  else if (route.page === "policy-accessibility") page = <AccessibilityPage go={go} />;
+  else if (route.page === "policy-reviews") page = <ReviewsPolicyPage go={go} />;
+  else if (route.page === "policy-preorder") page = <PreorderPolicyPage go={go} />;
+  else if (route.page === "policy-refund-form") page = <RefundRequestForm go={go} />;
+  else if (route.page === "contact") page = <RefundRequestForm go={go} />;
   else if (route.page === "admin") return <AdminDashboard onBack={() => go("home")} />;
   else if (route.page === "signin") {
     if (!account) page = <SignInPage onSignIn={(a) => setAccount(a)} />;
@@ -2789,17 +2810,32 @@ export default function App() {
       </nav>
       {page}
       <footer className="foot">
-        <div className="wrap foot-grid">
-          <div>
-            <p className="brand-foot"><MoonMark size={20} /> Little Amour Books</p>
-            <p className="foot-line">Truth told gently. Healing made beautiful.</p>
+        <div className="wrap">
+          <div className="foot-grid">
+            <div>
+              <p className="brand-foot"><MoonMark size={20} /> Little Amour Books</p>
+              <p className="foot-line">Truth told gently. Healing made beautiful.</p>
+              <p className="foot-small" style={{ marginTop: 10 }}>
+                Little Amour Books is a press — creative and publishing support for survivor
+                mothers. We are not therapy, legal advice, or crisis support. 75% of every sale
+                goes to the author.
+              </p>
+            </div>
+            <div>
+              <p className="foot-policy-heading">Shop</p>
+              <div className="foot-nav">
+                <button className="foot-nav-link" onClick={() => go("store")}>Shop books</button>
+                <button className="foot-nav-link" onClick={() => go("packs")}>Book packs</button>
+                <button className="foot-nav-link" onClick={() => go("authors")}>Our authors</button>
+                <button className="foot-nav-link" onClick={() => go("write")}>Become an author</button>
+              </div>
+            </div>
           </div>
-          <p className="foot-small">
-            Little Amour Books is a press — creative and publishing support for survivor
-            mothers. We are not therapy, legal advice, or crisis support. 75% of every sale
-            goes to the author. Books are published to Amazon under the Little Amour imprint
-            with the author's approval.
-          </p>
+          <div className="foot-legal-row">
+            <p className="foot-policy-heading" style={{ marginBottom: 10 }}>Legal & Policies</p>
+            <PolicyFooterLinks go={go} />
+          </div>
+          <p className="foot-copy">© {new Date().getFullYear()} Little Amour Books. All rights reserved. Policy version {POLICY_VERSION}.</p>
         </div>
       </footer>
       <button onClick={() => go("admin")} style={{ position: "fixed", bottom: 10, right: 14, background: "none", border: "none", color: "#ffffff18", fontSize: 11, cursor: "pointer" }}>admin</button>
@@ -3188,6 +3224,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .brand-foot { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-size: 17px; color: ${P.cream}; margin-bottom: 5px; }
 .foot-line { font-style: italic; font-size: 14px; color: ${P.rose}; }
 .foot-small { font-size: 13px; line-height: 1.6; }
+
+/* ---- Footer extended ---- */
+.foot-legal-row { border-top: 1px solid rgba(255,255,255,.08); margin-top: 24px; padding-top: 20px; }
+.foot-policy-heading { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: rgba(201,190,210,.5); font-weight: 700; margin-bottom: 6px; }
+.foot-nav { display: flex; flex-direction: column; gap: 4px; }
+.foot-nav-link { background: none; border: none; color: #C9BED2; font-size: 13px; text-align: left; cursor: pointer; padding: 2px 0; opacity: .85; }
+.foot-nav-link:hover { color: #E2A857; opacity: 1; }
+.foot-copy { font-size: 12px; color: rgba(201,190,210,.4); margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.06); }
+
 
 /* toast */
 .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); background: ${P.night}; color: ${P.cream}; padding: 14px 22px; border-radius: 12px; font-size: 14.5px; max-width: 480px; box-shadow: 0 12px 34px rgba(0,0,0,.4); z-index: 60; border: 1px solid rgba(226,168,87,.4); }

@@ -1190,6 +1190,21 @@ const ADMIN_CSS = `
 .nav-badge { background: ${P.rose}; color: #fff; border-radius: 99px; font-size: 10px; font-weight: 700; padding: 1px 6px; }
 
 /* Main */
+
+/* Order / Refund Detail */
+.order-detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+.order-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.order-detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.order-detail-card { background: #FAF4EB; border: 1px solid #ECD9C5; border-radius: 12px; padding: 14px 16px; }
+.order-detail-label { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: #888; margin-bottom: 4px; font-weight: 700; }
+.order-detail-val { font-size: 15px; font-weight: 600; color: #131A30; }
+.order-notes { background: #fff; border: 1px solid #ECD9C5; border-radius: 12px; padding: 18px 20px; }
+.a-btn.success { background: #27ae60; color: #fff; border-color: #27ae60; }
+.a-btn.danger { background: #c0392b; color: #fff; border-color: #c0392b; }
+.a-back { background: none; border: none; color: #6E5572; font-weight: 600; font-size: 14px; cursor: pointer; padding: 0; margin-bottom: 20px; display: block; }
+.a-back:hover { text-decoration: underline; }
+.a-loading { padding: 48px; text-align: center; color: #888; font-size: 15px; }
+
 .admin-main { flex: 1; overflow-y: auto; min-width: 0; }
 .admin-main-inner { padding: 32px; max-width: 980px; }
 
@@ -1319,6 +1334,10 @@ const NAV_GROUPS = [
     { id: "subscribers", label: "Subscribers" },
     { id: "analytics", label: "Analytics" },
   ]},
+  { label: "Orders & Support", items: [
+    { id: "orders", label: "Orders", alertKey: "refundrequests" },
+    { id: "refundrequests", label: "Refund Requests", alertKey: "refundrequests" },
+  ]},
   { label: "Content", items: [
     { id: "books", label: "Books" },
     { id: "applications", label: "Applications", alertKey: "applications" },
@@ -1353,6 +1372,350 @@ const NAV_GROUPS = [
 /* ============================================================
    LAUNCH EMAILS — celebrate published authors, admin-approved
    ============================================================ */
+/* ============================================================
+   ORDERS MANAGER
+   ============================================================ */
+function OrdersManager() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(null);
+
+  useEffect(() => {
+    supabase.from("checkout_consents")
+      .select("*")
+      .order("consented_at", { ascending: false })
+      .limit(200)
+      .then(({ data }) => { setRows(data || []); setLoading(false); });
+  }, []);
+
+  if (loading) return <div className="a-loading">Loading orders…</div>;
+
+  const STATUS_COLOR = { paid: "#27ae60", pending: "#e67e22", failed: "#c0392b", refunded: "#8e44ad", cancelled: "#7f8c8d" };
+
+  return (
+    <div>
+      <PageTitle title="Orders" sub={`${rows.length} orders on record`} />
+      {rows.length === 0 ? (
+        <Empty>No orders recorded yet. Orders appear here once checkout consent is stored at purchase.</Empty>
+      ) : (
+        <>
+          {open ? (
+            <OrderDetail order={open} onBack={() => setOpen(null)} />
+          ) : (
+            <table className="a-table">
+              <thead>
+                <tr>
+                  <th>Order #</th>
+                  <th>Customer</th>
+                  <th>Product</th>
+                  <th>Type</th>
+                  <th>Total</th>
+                  <th>Payment</th>
+                  <th>Policy Version</th>
+                  <th>Date</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.id}>
+                    <td><code style={{ fontSize: 12 }}>{r.order_number || "—"}</code></td>
+                    <td>{r.customer_email}</td>
+                    <td style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.product_name || "—"}</td>
+                    <td><span className="a-badge soft">{r.product_type || "—"}</span></td>
+                    <td>{r.total ? `$${Number(r.total).toFixed(2)}` : "—"}</td>
+                    <td>
+                      <span style={{ color: STATUS_COLOR[r.payment_status] || "#333", fontWeight: 700, fontSize: 12 }}>
+                        {r.payment_status || "—"}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12, color: "#888" }}>{r.policy_version || "—"}</td>
+                    <td style={{ fontSize: 12, color: "#888" }}>{r.consented_at ? new Date(r.consented_at).toLocaleDateString() : "—"}</td>
+                    <td><button className="a-link" onClick={() => setOpen(r)}>View</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function OrderDetail({ order: o, onBack }) {
+  const [notes, setNotes] = useState(o.exception_notes || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const saveNotes = async () => {
+    setSaving(true);
+    await supabase.from("checkout_consents").update({ exception_notes: notes }).eq("id", o.id);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const issueRefund = () => alert("Connect to Stripe dashboard to issue refund for order: " + (o.order_number || o.id));
+  const resendDownload = () => alert("Trigger download resend for: " + (o.customer_email));
+  const exportEvidence = () => {
+    const txt = [
+      "CHARGEBACK EVIDENCE PACKET",
+      "========================",
+      `Order: ${o.order_number || o.id}`,
+      `Customer: ${o.customer_email}`,
+      `Product: ${o.product_name}`,
+      `Type: ${o.product_type}`,
+      `Total: $${o.total}`,
+      `Payment status: ${o.payment_status}`,
+      `Policy version accepted: ${o.policy_version}`,
+      `Consented at: ${o.consented_at}`,
+      `IP address: ${o.ip_address || "not recorded"}`,
+      `Download delivered: ${o.download_delivered ? "Yes" : "No/Unknown"}`,
+      `Download timestamp: ${o.download_timestamp || "—"}`,
+      "",
+      "POLICY ACCEPTANCE",
+      "Customer accepted Terms of Sale, Refund Policy, Digital Product Licence,",
+      "Shipping Policy, and Privacy Policy at checkout.",
+      "Digital downloads are final sale once delivered — customer was notified.",
+      "",
+      "Exception notes:", o.exception_notes || "(none)",
+    ].join("\n");
+    const blob = new Blob([txt], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `chargeback-evidence-${o.order_number || o.id}.txt`;
+    a.click();
+  };
+
+  return (
+    <div>
+      <button className="a-back" onClick={onBack}>← Orders</button>
+      <div className="order-detail">
+        <div className="order-detail-header">
+          <div>
+            <h2 className="a-section-title">Order {o.order_number || o.id}</h2>
+            <p style={{ color: "#888", fontSize: 13 }}>{o.consented_at ? new Date(o.consented_at).toLocaleString() : ""}</p>
+          </div>
+          <div className="order-detail-actions">
+            <button className="a-btn" onClick={resendDownload}>Resend download</button>
+            <button className="a-btn" onClick={issueRefund}>Issue refund</button>
+            <button className="a-btn" onClick={exportEvidence}>Export chargeback evidence</button>
+          </div>
+        </div>
+
+        <div className="order-detail-grid">
+          <div className="order-detail-card">
+            <p className="order-detail-label">Customer</p>
+            <p className="order-detail-val">{o.customer_email}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Product</p>
+            <p className="order-detail-val">{o.product_name || "—"}</p>
+            <p style={{ fontSize: 12, color: "#888" }}>{o.product_type}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Total</p>
+            <p className="order-detail-val">{o.total ? `$${Number(o.total).toFixed(2)}` : "—"}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Payment status</p>
+            <p className="order-detail-val">{o.payment_status || "—"}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Policy version accepted</p>
+            <p className="order-detail-val">{o.policy_version || "—"}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Download delivered</p>
+            <p className="order-detail-val">{o.download_delivered ? "Yes ✓" : "Unknown"}</p>
+            {o.download_timestamp && <p style={{ fontSize: 12, color: "#888" }}>{new Date(o.download_timestamp).toLocaleString()}</p>}
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">IP address</p>
+            <p className="order-detail-val" style={{ fontSize: 13 }}>{o.ip_address || "Not recorded"}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Flags</p>
+            <p className="order-detail-val">
+              {o.duplicate_flag && <span className="a-badge warn" style={{ marginRight: 6 }}>Duplicate</span>}
+              {o.chargeback_flag && <span className="a-badge danger" style={{ marginRight: 6 }}>Chargeback</span>}
+              {o.fraud_flag && <span className="a-badge danger">Fraud risk</span>}
+              {!o.duplicate_flag && !o.chargeback_flag && !o.fraud_flag && <span style={{ color: "#27ae60" }}>None</span>}
+            </p>
+          </div>
+        </div>
+
+        <div className="order-notes">
+          <p className="order-detail-label">Exception / policy notes</p>
+          <textarea
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            rows={4}
+            placeholder="Record any refund decisions, exceptions, replacements, or policy notes here…"
+            style={{ width: "100%", padding: "10px 13px", border: "1.5px solid #DDD0C8", borderRadius: 9, fontSize: 14, fontFamily: "inherit", resize: "vertical" }}
+          />
+          <button className="a-btn" onClick={saveNotes} disabled={saving} style={{ marginTop: 8 }}>
+            {saved ? "Saved ✓" : saving ? "Saving…" : "Save notes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   REFUND REQUESTS MANAGER
+   ============================================================ */
+function RefundRequestsManager() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(null);
+
+  useEffect(() => {
+    supabase.from("refund_requests")
+      .select("*")
+      .order("submitted_at", { ascending: false })
+      .then(({ data }) => { setRows(data || []); setLoading(false); });
+  }, []);
+
+  const STATUS_COLOR = { pending: "#e67e22", approved: "#27ae60", denied: "#c0392b", "in-review": "#2980b9" };
+
+  const updateStatus = async (id, status) => {
+    await supabase.from("refund_requests").update({ status }).eq("id", id);
+    setRows(prev => prev.map(r => r.id === id ? { ...r, status } : r));
+    if (open?.id === id) setOpen(prev => ({ ...prev, status }));
+  };
+
+  if (loading) return <div className="a-loading">Loading refund requests…</div>;
+
+  return (
+    <div>
+      <PageTitle title="Refund Requests" sub={`${rows.filter(r => r.status === "pending").length} pending · ${rows.length} total`} />
+      {rows.length === 0 ? (
+        <Empty>No refund requests yet.</Empty>
+      ) : open ? (
+        <RefundDetail req={open} onBack={() => setOpen(null)} onUpdateStatus={updateStatus} />
+      ) : (
+        <table className="a-table">
+          <thead>
+            <tr>
+              <th>Order #</th>
+              <th>Customer</th>
+              <th>Product</th>
+              <th>Type</th>
+              <th>Reason</th>
+              <th>Status</th>
+              <th>Submitted</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id}>
+                <td><code style={{ fontSize: 12 }}>{r.order_number || "—"}</code></td>
+                <td>{r.customer_email}</td>
+                <td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.product_name || "—"}</td>
+                <td><span className="a-badge soft">{r.product_type || "—"}</span></td>
+                <td style={{ maxWidth: 200, fontSize: 12 }}>{r.reason}</td>
+                <td>
+                  <span style={{ color: STATUS_COLOR[r.status] || "#333", fontWeight: 700, fontSize: 12 }}>
+                    {r.status}
+                  </span>
+                </td>
+                <td style={{ fontSize: 12, color: "#888" }}>{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : "—"}</td>
+                <td><button className="a-link" onClick={() => setOpen(r)}>Review</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function RefundDetail({ req: r, onBack, onUpdateStatus }) {
+  const [decisionNotes, setDecisionNotes] = useState(r.decision_notes || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const saveNotes = async () => {
+    setSaving(true);
+    await supabase.from("refund_requests").update({ decision_notes: decisionNotes }).eq("id", r.id);
+    setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div>
+      <button className="a-back" onClick={onBack}>← Refund Requests</button>
+      <div className="order-detail">
+        <div className="order-detail-header">
+          <div>
+            <h2 className="a-section-title">Refund Request — {r.order_number || r.id}</h2>
+            <p style={{ color: "#888", fontSize: 13 }}>{r.submitted_at ? new Date(r.submitted_at).toLocaleString() : ""}</p>
+          </div>
+          <div className="order-detail-actions">
+            <button className="a-btn success" onClick={() => onUpdateStatus(r.id, "approved")}>Approve</button>
+            <button className="a-btn danger" onClick={() => onUpdateStatus(r.id, "denied")}>Deny</button>
+            <button className="a-btn" onClick={() => onUpdateStatus(r.id, "in-review")}>Mark in review</button>
+          </div>
+        </div>
+
+        <div className="order-detail-grid">
+          <div className="order-detail-card">
+            <p className="order-detail-label">Customer</p>
+            <p className="order-detail-val">{r.customer_email}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Order number</p>
+            <p className="order-detail-val">{r.order_number || "—"}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Product</p>
+            <p className="order-detail-val">{r.product_name || "—"}</p>
+            <p style={{ fontSize: 12, color: "#888" }}>{r.product_type}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Reason</p>
+            <p className="order-detail-val" style={{ fontSize: 14 }}>{r.reason}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Status</p>
+            <p className="order-detail-val" style={{ textTransform: "capitalize" }}>{r.status}</p>
+          </div>
+          <div className="order-detail-card">
+            <p className="order-detail-label">Photos uploaded</p>
+            <p className="order-detail-val">{r.photo_count || 0}</p>
+          </div>
+        </div>
+
+        {r.description && (
+          <div className="order-detail-card" style={{ marginTop: 16 }}>
+            <p className="order-detail-label">Customer's description</p>
+            <p style={{ marginTop: 6, lineHeight: 1.65 }}>{r.description}</p>
+          </div>
+        )}
+
+        <div className="order-notes" style={{ marginTop: 20 }}>
+          <p className="order-detail-label">Decision notes</p>
+          <textarea
+            value={decisionNotes}
+            onChange={e => setDecisionNotes(e.target.value)}
+            rows={4}
+            placeholder="Record your decision, reason, and any action taken (refund issued, replacement sent, denied because…)"
+            style={{ width: "100%", padding: "10px 13px", border: "1.5px solid #DDD0C8", borderRadius: 9, fontSize: 14, fontFamily: "inherit", resize: "vertical" }}
+          />
+          <button className="a-btn" onClick={saveNotes} disabled={saving} style={{ marginTop: 8 }}>
+            {saved ? "Saved ✓" : saving ? "Saving…" : "Save notes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LaunchEmails() {
   const [drafts, setDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2215,6 +2578,8 @@ export default function AdminDashboard({ onBack }) {
       case "themes":       return <ProposedCategories />;
       case "chatlogs":     return <ChatLogs />;
       case "pendingbooks":  return <PendingBooks />;
+      case "orders":        return <OrdersManager />;
+      case "refundrequests": return <RefundRequestsManager />;
       case "newsletter":    return <NewsletterDraft />;
       case "lachemails":    return <LaunchEmails />;
       case "authoraccounts": return <AuthorAccounts />;
