@@ -855,7 +855,7 @@ export function PacksPage({ go, books }) {
 }
 
 /* Individual Pack Page */
-export function PackPage({ packId, go, books }) {
+export function PackPage({ packId, go, books, addToCart }) {
   const pack = PACKS.find(p => p.id === packId) || PACKS[0];
   const packBooks = pack.bookIds.map(id => books.find(b => b.id === id)).filter(Boolean);
   const relatedPacks = pack.relatedPackIds
@@ -897,9 +897,8 @@ export function PackPage({ packId, go, books }) {
               </span>
             </div>
             <div className="bs-pack-hero-ctas">
-              <button className="btn-gold">
-                {pack.isSponsor ? "Sponsor this library" : "Add to bag"}
-                {pack.isSponsor ? "" : ` — $${pack.price}`}
+              <button className="btn-gold" onClick={() => addToCart ? addToCart({ type: "pack", id: pack.id, title: pack.title, price: Number(pack.price), grad: pack.grad, motif: "lantern" }) : go("packs")}>
+                {pack.isSponsor ? "Sponsor this library" : `Add to bag — $${pack.price}`}
               </button>
               {pack.isSponsor
                 ? null

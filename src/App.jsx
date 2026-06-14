@@ -548,7 +548,7 @@ function BooksPage({ go }) {
   );
 }
 
-function BookPage({ book, go, toast }) {
+function BookPage({ book, go, toast, addToCart }) {
   const author = AUTHORS[book.author];
   const coming = book.status === "coming";
   return (
@@ -585,8 +585,8 @@ function BookPage({ book, go, toast }) {
                 </button>
               ) : (
                 <>
-                  <button className="btn-gold" onClick={() => go("checkout", book.id)}>
-                    Buy the book — ${book.price.toFixed(2)}
+                  <button className="btn-gold" onClick={() => addToCart ? addToCart({ type: "book", id: book.id, title: book.title, price: book.price, authorName: book.authorName, grad: book.grad, motif: book.motif }) : go("checkout", book.id)}>
+                    Add to bag — ${book.price.toFixed(2)}
                   </button>
                   <button className="btn-line dark" onClick={() => toast("In production this links to the book's live Amazon listing, published under the Little Amour imprint.")}>
                     Buy on Amazon
@@ -664,26 +664,130 @@ function CheckoutPage({ book, go, onComplete }) {
   );
 }
 
+/* ---- Cart Page ---- */
+function CartPage({ cart, removeFromCart, go, onCheckout }) {
+  const [gifts, setGifts] = useState({});
+  const [agreed, setAgreed] = useState(false);
+  const giftTotal = GIFTS.reduce((s, g) => s + (gifts[g.id] ? g.amt : 0), 0);
+  const itemTotal = cart.reduce((s, c) => s + c.price, 0);
+  const total = itemTotal + giftTotal;
+  const toggle = (id) => setGifts(prev => ({ ...prev, [id]: !prev[id] }));
+  const empty = cart.length === 0;
+
+  if (empty) return (
+    <section className="morning page-top">
+      <div className="wrap narrow center" style={{ paddingTop: 80, paddingBottom: 80 }}>
+        <p style={{ fontSize: 48, marginBottom: 16 }}>🛍</p>
+        <h2>Your bag is empty</h2>
+        <p className="lead" style={{ marginBottom: 28 }}>Find a book that speaks to where your family is right now.</p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+          <button className="btn-gold" onClick={() => go("books")}>Browse all books</button>
+          <button className="btn-line dark" onClick={() => go("packs")}>Explore book packs</button>
+        </div>
+      </div>
+    </section>
+  );
+
+  return (
+    <section className="morning page-top">
+      <div className="wrap">
+        <button className="btn-text" onClick={() => go("books")}>← Keep browsing</button>
+        <h2 style={{ marginBottom: 28 }}>Your bag</h2>
+        <div className="checkout-grid">
+          <div className="co-order">
+            {/* Items */}
+            <div className="cart-items">
+              {cart.map(item => (
+                <div key={item.cartId} className="cart-item">
+                  <div className="cart-item-cover" style={{ background: `linear-gradient(160deg,${(item.grad||["#1A1530","#2A2150"])[0]},${(item.grad||["#1A1530","#2A2150"])[1]})` }}>
+                    <span style={{ fontSize: 20 }}>{item.motif === "bag" ? "👜" : item.motif === "lantern" ? "🏮" : item.motif === "heart" ? "🩷" : item.motif === "house" ? "🏠" : "🌙"}</span>
+                  </div>
+                  <div className="cart-item-info">
+                    <p className="cart-item-title">{item.title}</p>
+                    {item.authorName && <p className="cart-item-by">by {item.authorName}</p>}
+                    <p className="cart-item-type">{item.type === "pack" ? "Book Pack" : "Digital Book"}</p>
+                  </div>
+                  <div className="cart-item-right">
+                    <p className="cart-item-price">${item.price.toFixed(2)}</p>
+                    <button className="cart-remove" onClick={() => removeFromCart(item.cartId)} aria-label={`Remove ${item.title} from cart`}>
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Gifts */}
+            {GIFTS.filter(g => gifts[g.id]).length > 0 && (
+              <div className="co-lines" style={{ marginTop: 16 }}>
+                {cart.map(item => <p key={item.cartId}><span>{item.title}</span><span>${item.price.toFixed(2)}</span></p>)}
+                {GIFTS.filter(g => gifts[g.id]).map(g => <p key={g.id}><span>{g.label}</span><span>${g.amt.toFixed(2)}</span></p>)}
+                <p className="co-total"><span>Total</span><span>${total.toFixed(2)}</span></p>
+              </div>
+            )}
+            {GIFTS.filter(g => gifts[g.id]).length === 0 && (
+              <div className="co-lines" style={{ marginTop: 16 }}>
+                {cart.map(item => <p key={item.cartId}><span>{item.title}</span><span>${item.price.toFixed(2)}</span></p>)}
+                <p className="co-total"><span>Total</span><span>${total.toFixed(2)}</span></p>
+              </div>
+            )}
+
+            {/* Policy consent */}
+            <label className="cart-consent">
+              <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} />
+              <span>I agree to the <button className="link" onClick={() => go("policy-terms")}>Terms of Sale</button>, <button className="link" onClick={() => go("policy-refund")}>Refund Policy</button>, and <button className="link" onClick={() => go("policy-license")}>Digital Product License</button>. I understand digital downloads are final sale once delivered.</span>
+            </label>
+
+            <button
+              className="btn-gold full"
+              disabled={!agreed}
+              style={{ opacity: agreed ? 1 : 0.5, marginTop: 16 }}
+              onClick={() => onCheckout(cart, gifts, total)}
+            >
+              Complete purchase — ${total.toFixed(2)}
+            </button>
+            <p className="fine" style={{ marginTop: 12 }}>Secure checkout via Stripe at deployment. 75% of every direct sale goes to the author.</p>
+          </div>
+
+          <div className="co-author">
+            <h3 className="bd-h">Add a little extra love</h3>
+            <p className="lead" style={{ fontSize: 15 }}>Optional support gifts go directly to the author (100% minus processing).</p>
+            <div className="gift-grid" style={{ marginTop: 16 }}>
+              {GIFTS.map(g => (
+                <button key={g.id} className={"gift" + (gifts[g.id] ? " on" : "")} onClick={() => toggle(g.id)} aria-pressed={!!gifts[g.id]}>
+                  <span className="gift-top"><strong>{g.label}</strong><em>${g.amt}</em></span>
+                  <span className="gift-desc">{g.desc}</span>
+                </button>
+              ))}
+            </div>
+            <p className="fine" style={{ marginTop: 12 }}>Gifts are optional, anonymous unless you say otherwise, and go directly to the author.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ThanksPage({ order, go }) {
   if (!order) return null;
-  const author = AUTHORS[order.book.author];
-  const authorBook = order.book.price * 0.75;
-  const press = order.book.price * 0.25;
-  const gifts = order.total - order.book.price;
+  const items = order.items || [];
+  const giftAmt = Object.values(order.gifts || {}).filter(Boolean).length * 5; // approx
   return (
     <section className="dusk page-top tall">
       <div className="wrap narrow center">
         <Moon size={44} />
         <h2 className="light">Thank you. Here's what just happened.</h2>
         <div className="thanks-card">
-          <p><span>To {author.name} (75% of the book)</span><span>${authorBook.toFixed(2)}</span></p>
-          {gifts > 0 ? <p><span>Your gifts to {author.name.split(" ")[0]} (100%)</span><span>${gifts.toFixed(2)}</span></p> : null}
-          <p><span>To the publisher — keeps the studio free for every author</span><span>${press.toFixed(2)}</span></p>
-          <p className="t-total"><span>A child gets braver words</span><span>priceless</span></p>
+          {items.map(item => (
+            <p key={item.cartId}><span>{item.title} — to author (75%)</span><span>${(item.price * 0.75).toFixed(2)}</span></p>
+          ))}
+          {giftAmt > 0 && <p><span>Your support gifts (100%)</span><span>${giftAmt.toFixed(2)}</span></p>}
+          <p><span>To the publisher — keeps the studio free</span><span>${(items.reduce((s,i)=>s+i.price,0)*0.25).toFixed(2)}</span></p>
+          <p className="t-total"><span>Children get braver words</span><span>priceless</span></p>
         </div>
         <p className="lead light center-text">
-          {order.book.title} will be on its way once payments are live. You didn't just buy
-          a book — you helped a mother rebuild, in her own words.
+          {items.length === 1 ? items[0].title : `${items.length} books`} will be on their way once payments are live.
+          You didn't just buy a book — you helped a mother rebuild, in her own words.
         </p>
         <button className="btn-gold" onClick={() => go("books")}>Keep browsing</button>
       </div>
@@ -2606,8 +2710,17 @@ export default function App() {
   const [route, setRoute] = useState({ page: "home", id: null });
   const [account, setAccount] = useState(null);
   const [order, setOrder] = useState(null);
+  const [cart, setCart] = useState([]);      // { cartId, type, id, title, price, authorName, grad, motif }
   const [toastMsg, setToastMsg] = useState("");
   const toastTimer = useRef(null);
+
+  const addToCart = (item) => {
+    const cartId = item.type + "_" + item.id;
+    setCart(prev => prev.find(c => c.cartId === cartId) ? prev : [...prev, { ...item, cartId }]);
+    go("cart");
+  };
+  const removeFromCart = (cartId) => setCart(prev => prev.filter(c => c.cartId !== cartId));
+  const clearCart = () => setCart([]);
 
   const go = (page, id = null) => {
     setRoute({ page, id });
@@ -2618,8 +2731,9 @@ export default function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToastMsg(""), 5200);
   };
-  const completeOrder = (book, gifts, total) => {
-    setOrder({ book, gifts, total });
+  const completeOrder = (items, gifts, total) => {
+    setOrder({ items, gifts, total });
+    clearCart();
     go("thanks");
   };
 
@@ -2628,9 +2742,10 @@ export default function App() {
   else if (route.page === "store") page = <StoreLanding go={go} books={BOOKS} />;
   else if (route.page === "books") page = <BooksShop go={go} books={BOOKS} />;
   else if (route.page === "packs") page = <PacksPage go={go} books={BOOKS} />;
-  else if (route.page === "pack") page = <PackPage packId={route.id} go={go} books={BOOKS} />;
-  else if (route.page === "book") page = <BookPage book={BOOKS.find((b) => b.id === route.id) || BOOKS[0]} go={go} toast={toast} />;
-  else if (route.page === "checkout") page = <CheckoutPage book={BOOKS.find((b) => b.id === route.id) || BOOKS[0]} go={go} onComplete={completeOrder} />;
+  else if (route.page === "pack") page = <PackPage packId={route.id} go={go} books={BOOKS} addToCart={addToCart} />;
+  else if (route.page === "book") page = <BookPage book={BOOKS.find((b) => b.id === route.id) || BOOKS[0]} go={go} toast={toast} addToCart={addToCart} />;
+  else if (route.page === "cart") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} />;
+  else if (route.page === "checkout") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} />;
   else if (route.page === "thanks") page = <ThanksPage order={order} go={go} />;
   else if (route.page === "authors") page = <AuthorsPage go={go} />;
   else if (route.page === "author") page = <AuthorPage author={AUTHORS[route.id] || AUTHORS.kirby} go={go} toast={toast} />;
@@ -2664,6 +2779,9 @@ export default function App() {
           {NAV.map(([k, label]) => (
             <button key={k} className={"nav-link" + (route.page === k ? " on" : "")} onClick={() => go(k)}>{label}</button>
           ))}
+          <button className={"nav-link cart-btn" + (route.page === "cart" ? " on" : "")} onClick={() => go("cart")} aria-label={`Cart — ${cart.length} item${cart.length !== 1 ? "s" : ""}`}>
+            🛍 {cart.length > 0 && <span className="cart-badge">{cart.length}</span>}
+          </button>
           <button className={"nav-link signin" + (route.page === "signin" ? " on" : "")} onClick={() => go("signin")}>
             {account ? "My studio" : "Sign in"}
           </button>
@@ -2735,6 +2853,25 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .btn-text { background: none; border: none; color: ${P.mauve}; font-size: 14.5px; font-weight: 700; padding: 6px 0; }
 .btn-text:hover { color: ${P.ink}; }
 .link { background: none; border: none; padding: 0; font: inherit; color: ${P.mauve}; text-decoration: underline; text-underline-offset: 3px; }
+
+
+/* ---- Cart ---- */
+.cart-items { display: flex; flex-direction: column; gap: 12px; margin-bottom: 4px; }
+.cart-item { display: flex; align-items: center; gap: 14px; background: #fff; border: 1px solid #ECD9C5; border-radius: 14px; padding: 14px 16px; }
+.cart-item-cover { width: 52px; height: 52px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.cart-item-info { flex: 1; min-width: 0; }
+.cart-item-title { font-weight: 700; font-size: 15px; line-height: 1.25; margin-bottom: 2px; }
+.cart-item-by { font-size: 13px; color: #6E5572; }
+.cart-item-type { font-size: 11.5px; color: #999; margin-top: 2px; text-transform: uppercase; letter-spacing: .08em; }
+.cart-item-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.cart-item-price { font-weight: 700; font-size: 16px; }
+.cart-remove { background: none; border: none; color: #c0392b; font-size: 12.5px; font-weight: 600; padding: 3px 8px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(192,57,43,.25); }
+.cart-remove:hover { background: rgba(192,57,43,.07); }
+.cart-badge { display: inline-flex; align-items: center; justify-content: center; background: #E2A857; color: #fff; font-size: 10px; font-weight: 700; width: 17px; height: 17px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
+.cart-btn { position: relative; }
+.cart-consent { display: flex; align-items: flex-start; gap: 10px; background: #F4EADC; border-radius: 10px; padding: 14px 16px; font-size: 13.5px; line-height: 1.55; margin-top: 16px; border: 1px solid #ECD9C5; }
+.cart-consent input[type=checkbox] { margin-top: 3px; flex-shrink: 0; width: 16px; height: 16px; accent-color: #E2A857; }
+.cart-consent .link { background: none; border: none; color: #6E5572; font-weight: 600; text-decoration: underline; padding: 0; font-size: inherit; cursor: pointer; }
 
 /* nav */
 .nav { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 24px; background: rgba(13,18,38,.94); backdrop-filter: blur(8px); }
