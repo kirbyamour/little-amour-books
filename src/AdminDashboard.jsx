@@ -1319,6 +1319,7 @@ const NAV_GROUPS = [
     { id: "applications", label: "Applications", alertKey: "applications" },
     { id: "themes", label: "Themes", alertKey: "themes" },
     { id: "chatlogs", label: "Chat Logs" },
+    { id: "pendingbooks", label: "Pending Books", alertKey: "pendingbooks" },
   ]},
   { label: "Growth", items: [
     { id: "sponsorcrm", label: "Sponsors" },
@@ -1337,6 +1338,150 @@ const NAV_GROUPS = [
 /* ============================================================
    ROOT
    ============================================================ */
+
+/* ============================================================
+   PENDING BOOKS — manuscript review + email notifications
+   ============================================================ */
+function PendingBooks() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("pending");
+  const [feedback, setFeedback] = useState({});
+  const [saving, setSaving] = useState(null);
+  const [toast, setToast] = useState("");
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    const { data } = await supabase.from("book_submissions").select("*").order("submitted_at", { ascending: false });
+    setRows(data || []);
+    setLoading(false);
+  }
+
+  async function decide(row, status) {
+    setSaving(row.id);
+    const note = feedback[row.id] || "";
+    await supabase.from("book_submissions").update({
+      status,
+      admin_feedback: note,
+      reviewed_at: new Date().toISOString(),
+    }).eq("id", row.id);
+
+    // Send notification email via serverless function
+    try {
+      const subject = status === "approved"
+        ? "Your book has been accepted — Little Amour Books"
+        : status === "changes_requested"
+        ? "We have some notes on your manuscript — Little Amour Books"
+        : "An update on your manuscript — Little Amour Books";
+
+      const bodyIntro = status === "approved"
+        ? `<p>We are delighted to let you know that <strong>${row.title || "your manuscript"}</strong> has been accepted for publication with Little Amour Books. 🎉</p><p>We will be in touch shortly with next steps.</p>`
+        : status === "changes_requested"
+        ? `<p>Thank you for submitting <strong>${row.title || "your manuscript"}</strong>. We have read it carefully and have some notes before we can move forward.</p>`
+        : `<p>Thank you for submitting <strong>${row.title || "your manuscript"}</strong>. After careful review we are not able to move forward with this manuscript at this time.</p><p>This is not a reflection of your story or your experience — it may simply not be the right fit for our current catalogue.</p>`;
+
+      const feedbackBlock = note
+        ? `<div style="background:#f9f4ef;border-left:4px solid #E2A857;padding:16px 20px;margin:20px 0;border-radius:4px;"><p style="margin:0 0 6px;font-weight:bold;color:#7a5c8a;">From the editorial team:</p><p style="margin:0;white-space:pre-wrap;">${note}</p></div>`
+        : "";
+
+      const html = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;color:#2B2433;">
+        <p style="font-size:13px;color:#E2A857;letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">Little Amour Books</p>
+        <h2 style="margin:0 0 20px;">Dear ${row.author_name || "Author"},</h2>
+        ${bodyIntro}
+        ${feedbackBlock}
+        <p>With care,<br/><strong>The Little Amour Books Team</strong></p>
+        <hr style="border:none;border-top:1px solid #eee;margin:24px 0"/>
+        <p style="font-size:11px;color:#aaa;">Little Amour Books · littleamour.com</p>
+      </div>`;
+
+      await fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: row.author_email, subject, html }),
+      });
+    } catch (e) { /* non-fatal */ }
+
+    setSaving(null);
+    setToast(status === "approved" ? "✓ Approved & email sent" : status === "changes_requested" ? "✓ Feedback sent" : "✓ Denied & email sent");
+    setTimeout(() => setToast(""), 3000);
+    load();
+  }
+
+  const STATUS_COLORS = { pending: P.gold, approved: P.green, denied: P.red, changes_requested: P.blue };
+  const visible = filter === "all" ? rows : rows.filter(r => r.status === filter);
+  const pendingCount = rows.filter(r => r.status === "pending").length;
+
+  return (
+    <div>
+      <PageTitle title="Pending Books" sub={`${rows.length} total · ${pendingCount} awaiting review`} />
+      {toast && <div style={{background:P.green,color:"#fff",padding:"10px 18px",borderRadius:8,marginBottom:16,fontWeight:600}}>{toast}</div>}
+      <div className="filter-pills" style={{marginBottom:20}}>
+        {["pending","approved","changes_requested","denied","all"].map(s => (
+          <button key={s} className={"pill" + (filter === s ? " on" : "")} onClick={() => setFilter(s)}>
+            {s.replace("_"," ")} {s !== "all" && `(${rows.filter(r => r.status === s).length})`}
+          </button>
+        ))}
+      </div>
+      {loading ? <Empty>Loading…</Empty> : visible.length === 0 ? (
+        <Empty>No book submissions with status "{filter.replace("_"," ")}" yet.</Empty>
+      ) : visible.map(r => (
+        <div key={r.id} className="app-card">
+          <div className="app-header">
+            <div>
+              <strong className="app-name">{r.title || "(Untitled)"}</strong>
+              <span className="app-pen">by {r.author_name || "Unknown"}</span>
+              <a href={`mailto:${r.author_email}`} className="app-email">{r.author_email}</a>
+            </div>
+            <span className="cat-badge" style={{background:(STATUS_COLORS[r.status]||P.inkSoft)+"22",color:STATUS_COLORS[r.status]||P.inkSoft}}>
+              {r.status?.replace("_"," ")}
+            </span>
+          </div>
+          {r.synopsis && <p className="app-field"><strong>Synopsis:</strong> {r.synopsis}</p>}
+          {r.theme && <p className="app-field"><strong>Theme:</strong> {r.theme}</p>}
+          {r.age_range && <p className="app-field"><strong>Age range:</strong> {r.age_range}</p>}
+          {r.manuscript_url && (
+            <p className="app-field">
+              <strong>Manuscript:</strong>{" "}
+              <a href={r.manuscript_url} target="_blank" rel="noopener noreferrer" style={{color:P.mauve}}>
+                View / Download
+              </a>
+            </p>
+          )}
+          {r.admin_feedback && <p className="app-field" style={{color:P.inkSoft,fontStyle:"italic"}}><strong>Last feedback:</strong> {r.admin_feedback}</p>}
+          <p style={{fontSize:12,color:P.inkSoft,marginBottom:12}}>{fmtDate(r.submitted_at)}</p>
+          {(r.status === "pending" || r.status === "changes_requested") && (
+            <div className="cat-actions">
+              <textarea
+                className="cat-note-input"
+                rows={3}
+                placeholder="Feedback for the author (included in the email)…"
+                value={feedback[r.id] || ""}
+                onChange={e => setFeedback({...feedback, [r.id]: e.target.value})}
+                style={{width:"100%",marginBottom:10,resize:"vertical"}}
+              />
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button className="a-btn" style={{background:P.green}} disabled={saving===r.id} onClick={() => decide(r, "approved")}>
+                  {saving===r.id ? "Saving…" : "✓ Accept & publish"}
+                </button>
+                <button className="a-btn" style={{background:P.blue}} disabled={saving===r.id} onClick={() => decide(r, "changes_requested")}>
+                  ✏ Request changes
+                </button>
+                <button className="a-btn" style={{background:P.red}} disabled={saving===r.id} onClick={() => decide(r, "denied")}>
+                  ✗ Decline
+                </button>
+              </div>
+            </div>
+          )}
+          {r.status === "approved" && (
+            <p style={{color:P.green,fontSize:13,fontWeight:600}}>Published ✓</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminDashboard({ onBack }) {
   const [unlocked, setUnlocked] = useState(false);
   const [passcode, setPasscode] = useState("");
@@ -1392,8 +1537,9 @@ export default function AdminDashboard({ onBack }) {
     Promise.all([
       supabase.from("author_applications").select("*", { count: "exact", head: true }).eq("status", "new"),
       supabase.from("proposed_categories").select("*", { count: "exact", head: true }).eq("status", "pending"),
-    ]).then(([apps, themes]) => {
-      setAlerts({ applications: apps.count || 0, themes: themes.count || 0 });
+      supabase.from("book_submissions").select("*", { count: "exact", head: true }).eq("status", "pending"),
+    ]).then(([apps, themes, bsub]) => {
+      setAlerts({ applications: apps.count || 0, themes: themes.count || 0, pendingbooks: bsub.count || 0 });
     });
   }, []);
 
@@ -1407,6 +1553,7 @@ export default function AdminDashboard({ onBack }) {
       case "applications": return <AuthorApplications />;
       case "themes":       return <ProposedCategories />;
       case "chatlogs":     return <ChatLogs />;
+      case "pendingbooks":  return <PendingBooks />;
       case "sponsorcrm":   return <SponsorCRM />;
       case "goal":         return <GoalDashboard />;
       case "simulator":    return <Simulator />;

@@ -288,3 +288,21 @@ create table if not exists page_views (
   referrer text,
   created_at timestamptz default now()
 );
+
+-- ============================================================
+-- BOOK SUBMISSIONS — pending manuscript review
+-- ============================================================
+create table if not exists book_submissions (
+  id uuid primary key default gen_random_uuid(),
+  author_name text not null,
+  author_email text not null,
+  title text,
+  synopsis text,
+  theme text,
+  age_range text,
+  manuscript_url text,
+  status text default 'pending' check (status in ('pending','approved','changes_requested','denied')),
+  admin_feedback text,
+  reviewed_at timestamptz,
+  submitted_at timestamptz default now()
+);
