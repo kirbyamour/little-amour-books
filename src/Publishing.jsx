@@ -726,6 +726,29 @@ function ChecklistSidebar({ completed, setTab, tab }) {
   );
 }
 
+
+/* ── FINAL APPROVAL GATE ── */
+function FinalApprovalGate({ onApprove }) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ background: C.cardAlt, border: `1.5px solid ${C.mauve}44`, borderRadius: 10, padding: "16px 20px", marginBottom: 14 }}>
+        <label style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer" }}>
+          <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ marginTop: 3, flexShrink: 0, accentColor: C.mauve, width: 16, height: 16 }} />
+          <span style={{ color: C.cream, fontSize: 14, lineHeight: 1.75 }}>
+            I understand that once this book is approved and published, Little Amour Books may continue selling and distributing the book as part of its catalog. I cannot require Little Amour Books to remove the book or take the completed Little Amour Books edition elsewhere except as permitted by the Publishing Agreement.
+          </span>
+        </label>
+      </div>
+      <button onClick={onApprove} disabled={!checked}
+        style={{ ...btn("green"), opacity: checked ? 1 : 0.4, cursor: checked ? "pointer" : "not-allowed" }}>
+        ✓ Approve & Mark Ready to Publish
+      </button>
+      {!checked && <p style={{ color: C.muted, fontSize: 12, marginTop: 8 }}>Please confirm the checkbox above before approving.</p>}
+    </div>
+  );
+}
+
 /* ── TABS ── */
 const TABS = [
   { id: "checklist",    label: "📋 Checklist" },
@@ -817,7 +840,7 @@ export default function PublishingModule({ book, setBook, author, onBack }) {
                 <p style={{ color: C.green, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>All required steps complete 🌙</p>
                 <p style={{ color: C.muted, fontSize: 13, marginBottom: 14 }}>You can now mark this book as approved and ready for publishing.</p>
                 {!completed.has("approval")
-                  ? <button onClick={markApproved} style={btn("green")}>✓ Approve & Mark Ready to Publish</button>
+                  ? <FinalApprovalGate onApprove={markApproved} />
                   : <p style={{ color: C.green, fontSize: 14, margin: 0 }}>✓ Book approved — {book.publishingApprovedAt ? new Date(book.publishingApprovedAt).toLocaleDateString() : "today"}</p>
                 }
               </div>

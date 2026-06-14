@@ -879,7 +879,7 @@ function WritePage({ go }) {
               <button className="btn-gold" onClick={() => go("apply")}>Apply to Write With Us</button>
               <a href="#how-it-works" className="write-hero-link">How it works &darr;</a>
             </div>
-            <p className="write-hero-note">Pen names and illustrated author profiles are welcome.</p>
+            <p className="write-hero-note">Pen names and illustrated author profiles are welcome. · <button onClick={() => go("legal")} style={{background:"none",border:"none",color:"#E5AC9F",textDecoration:"underline",cursor:"pointer",fontSize:"inherit",padding:0}}>Read the Author Agreement</button></p>
           </Reveal>
         </div>
       </section>
@@ -1130,6 +1130,127 @@ const APPLY_THEMES = [
   { value: "suggest-new",  label: "I have a new theme idea →" },
 ];
 
+/* ============================================================
+   AUTHOR LEGAL PAGE — Publishing Agreement + Public Overview
+   ============================================================ */
+function AuthorLegalPage({ go }) {
+  return (
+    <section className="morning page-top">
+      <div className="wrap" style={{ maxWidth: 760 }}>
+        <p className="eyebrow plum">Author Resources</p>
+        <h2 style={{ marginBottom: 8 }}>Author Publishing Agreement<br />& Rights Overview</h2>
+        <p className="lead" style={{ marginBottom: 32 }}>
+          Plain-English first. Full legal terms below. Both matter — please read both.
+        </p>
+
+        {/* ── PLAIN ENGLISH ── */}
+        <div style={{ background: "#F0EBF8", border: "1.5px solid #C4A8D8", borderRadius: 14, padding: "28px 32px", marginBottom: 36 }}>
+          <p style={{ color: "#6E5572", fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>Plain-English Summary</p>
+          <p style={{ color: "#2B2433", fontSize: 15, lineHeight: 1.8, marginBottom: 12 }}>
+            <strong>Your story is always yours.</strong> Your lived experience, personal memories, and ideas belong to you and no contract changes that.
+          </p>
+          <p style={{ color: "#2B2433", fontSize: 15, lineHeight: 1.8, marginBottom: 12 }}>
+            <strong>The completed book is a shared creation.</strong> Little Amour Books invests significantly in the illustrations, cover design, layout, formatting, publishing files, product pages, and sales infrastructure for every book. That investment means the completed Little Amour Books edition — the illustrated, designed, formatted, published book — stays in our catalog.
+          </p>
+          <p style={{ color: "#2B2433", fontSize: 15, lineHeight: 1.8, marginBottom: 12 }}>
+            <strong>Published books remain in the catalog.</strong> Once a book is published, you cannot require Little Amour Books to remove it from the website or take the completed Little Amour Books edition elsewhere. This protects the investment we make together, and ensures readers can always find and access the book.
+          </p>
+          <p style={{ color: "#2B2433", fontSize: 15, lineHeight: 1.8, marginBottom: 12 }}>
+            <strong>You keep earning.</strong> Your royalty share continues for as long as the book is sold. You receive 75% of every direct sale and 75% of net Amazon royalties.
+          </p>
+          <p style={{ color: "#2B2433", fontSize: 15, lineHeight: 1.8, marginBottom: 12 }}>
+            <strong>You can write other books.</strong> You are free to write other books, tell your personal story generally, create unrelated works, and work with other publishers on entirely different projects.
+          </p>
+          <p style={{ color: "#2B2433", fontSize: 15, lineHeight: 1.8, marginBottom: 0 }}>
+            <strong>Safety and privacy always come first.</strong> You can request a safety, privacy, correction, or legal review at any time. If something in the book puts you, your children, or another person at risk, we will act. Our team retains final discretion over any changes, but we take every concern seriously.
+          </p>
+        </div>
+
+        {/* ── FULL AGREEMENT ── */}
+        <div style={{ color: "#2B2433" }}>
+          <h3 style={{ fontFamily: "Georgia,serif", fontSize: 22, marginBottom: 24 }}>Little Amour Books — Author Publishing Agreement</h3>
+
+          <p style={{ color: "#6E5572", fontSize: 13, marginBottom: 28 }}>
+            Effective upon submission of an Author Application or acceptance of a publishing offer from Little Amour Books. This Agreement governs the relationship between the Author and Little Amour Books with respect to the Work described herein.
+          </p>
+
+          {[
+            {
+              n: "1", title: "Definitions",
+              body: `"Author" means the individual who submitted an application and whose personal story, ideas, or lived experience forms the basis of the Work.\n\n"Work" means the completed illustrated children's book, including all text, illustrations, cover design, back cover design, interior layout, formatting, publishing files, digital files, print-ready files, EPUB files, metadata, product listing copy, and all associated materials created, generated, edited, commissioned, or produced by or through Little Amour Books in connection with the Author's story.\n\n"Little Amour Books Assets" means all illustrations (AI-assisted or otherwise), cover designs, back cover designs, layout and interior files, formatted interiors, character profiles, style guides, prompts and prompt history, source files, templates, metadata, product listing copy, marketing assets, export files, print-ready files, digital PDF files, EPUB files, website product pages, and all Little Amour Books branding and imprint materials.\n\n"Underlying Story" means the Author's original lived experiences, personal memories, ideas, and any pre-existing written materials the Author owned before engaging with the Little Amour Books studio.`
+            },
+            {
+              n: "2", title: "Author's Retained Rights",
+              body: `The Author retains full ownership of their Underlying Story — their lived experiences, personal memories, and ideas — at all times. Nothing in this Agreement transfers the Author's personal story to Little Amour Books.\n\nThe Author remains free to:\n(a) tell their personal story in other contexts;\n(b) write other unrelated books;\n(c) work with other publishers on entirely different, unrelated projects;\n(d) create other original works that do not reproduce or substantially recreate the Little Amour Books edition of the Work.`
+            },
+            {
+              n: "3", title: "Publishing License Granted to Little Amour Books",
+              body: `The Author grants to Little Amour Books an exclusive, worldwide, perpetual (for the full term of copyright), royalty-bearing license to publish, sell, distribute, display, advertise, market, license, sublicense, and otherwise commercially exploit the Work and all components of the Work through any channels, formats, or platforms, including but not limited to the Little Amour Books website, Amazon, other digital and print retailers, libraries, educational institutions, and any future distribution channels.\n\nThis license is exclusive as to the Work in the form created through the Little Amour Books studio. "Exclusive" means the Author may not publish, sell, distribute, license, or authorize any third party to exploit:\n(a) the same Work;\n(b) a substantially similar version of the same Work;\n(c) any version using Little Amour Books Assets;\n(d) any version using Little Amour-created illustrations, covers, layouts, character designs, style guides, or publishing files;\n(e) any derivative or adapted version that substantially recreates the Little Amour Books published edition;\nwithout prior written permission from Little Amour Books.\n\nThe default term of this license is the full duration of copyright (including any extensions), unless terminated earlier by Little Amour Books in writing or as otherwise required by law. There is no default reversion of rights to the Author based solely on the passage of time or sales performance.`
+            },
+            {
+              n: "4", title: "Little Amour Books Ownership of Studio Assets",
+              body: `Little Amour Books owns or controls, to the fullest extent permitted by applicable law, all Little Amour Books Assets, including but not limited to:\n\n• AI-assisted and human-edited illustrations\n• Cover designs and back cover designs\n• Layout files and formatted interiors\n• Character profiles and visual character bibles\n• Style guides and prompt history\n• Source files and templates\n• Metadata and product listing copy\n• Marketing assets and social media materials\n• Export files, print-ready files, digital PDF files, and EPUB files\n• Website product pages and Little Amour Books imprint materials\n\nThese assets are created through significant investment of creative, technical, editorial, publishing, and marketing resources by Little Amour Books and do not transfer to the Author under this Agreement.`
+            },
+            {
+              n: "5", title: "No Author-Controlled Removal After Publication",
+              body: `The Author acknowledges that Little Amour Books makes substantial investments in creating the Work, and that removal of the Work after publication would cause harm to Little Amour Books and to readers who rely on the availability of the Work.\n\nAccordingly, the Author may not require Little Amour Books to remove, unpublish, disable, hide, or stop selling the Work after publication, except where:\n(a) required by a court order or applicable law; or\n(b) Little Amour Books determines, in its sole reasonable discretion, that removal or restriction is necessary for legal, privacy, safety, child-protection, platform-policy, or ethical reasons.\n\nIf the Author ceases to participate, closes their account, or no longer wishes to promote the Work:\n(i) Little Amour Books may continue selling and distributing the published Work;\n(ii) the Author remains eligible for their revenue share under this Agreement unless terminated for breach;\n(iii) the Author cannot demand removal merely because they have changed their mind or because the Work has become commercially successful;\n(iv) the Author cannot take the completed Little Amour Books edition elsewhere or license it to a third party;\n(v) the Author may request privacy changes such as pen name modification, hidden author photo, updated or removed bio, or changed location details, which Little Amour Books will implement in good faith within a reasonable time.`
+            },
+            {
+              n: "6", title: "Safety, Privacy, and Legal Review",
+              body: `The Author may request a safety, privacy, correction, or legal review at any time by contacting hello@littleamour.com.\n\nLittle Amour Books will review all such requests promptly and in good faith. Little Amour Books retains final discretion over whether to edit, update, restrict, pause, or remove the Work in response to any such request.\n\nLittle Amour Books also retains the right to pause, restrict, edit, or remove the Work at any time, without prior notice to the Author, where Little Amour Books determines in its reasonable judgment that any of the following circumstances exist:\n(a) a credible legal claim, copyright dispute, or trademark conflict;\n(b) a privacy concern involving the Author, a child, or a third party;\n(c) a defamation concern;\n(d) a child safety concern;\n(e) a court order or protective order;\n(f) a platform or distributor policy issue;\n(g) a safety risk to the Author, a child, a survivor, or any third party;\n(h) materials submitted without necessary permissions from third parties;\n(i) a payment dispute, fraud concern, or breach of this Agreement;\n(j) a reputational or ethical concern determined in Little Amour Books' reasonable judgment.\n\nWhere operationally feasible and legally permissible, Little Amour Books will notify the Author of any action taken under this section.`
+            },
+            {
+              n: "7", title: "Royalties and Revenue Share",
+              body: `In consideration of the publishing license granted herein, Little Amour Books agrees to pay the Author a royalty of:\n• 75% of net revenue from direct sales through the Little Amour Books website;\n• 75% of net royalties received from third-party platforms including Amazon KDP.\n\n"Net revenue" means gross receipts less any applicable transaction fees, platform fees, or payment processing costs.\n\nRoyalties will be paid on a schedule communicated to the Author. Little Amour Books will maintain reasonable records of sales and provide the Author access to their royalty information through the Author Studio portal.\n\n100% of reader gift contributions go directly to the Author.`
+            },
+            {
+              n: "8", title: "Author Warranties and Representations",
+              body: `The Author represents and warrants that:\n(a) they have the right to submit their Underlying Story and any pre-existing materials provided to Little Amour Books;\n(b) the Underlying Story and any pre-existing materials do not infringe the intellectual property rights, privacy rights, or any other rights of any third party;\n(c) they have not and will not submit materials containing another person's identifiable private information without appropriate consent;\n(d) they will not take any action designed to circumvent or undermine Little Amour Books' publishing rights under this Agreement.`
+            },
+            {
+              n: "9", title: "Termination",
+              body: `Little Amour Books may terminate this Agreement, in whole or in part, by written notice to the Author in the event of:\n(a) material breach of this Agreement by the Author;\n(b) the Author's fraudulent misrepresentation in their application or in materials submitted to the studio;\n(c) a court order, regulatory requirement, or legal obligation requiring termination;\n(d) circumstances requiring removal under Section 6 where continuation of the Agreement is no longer appropriate.\n\nUpon termination by Little Amour Books, the publishing license terminates and Little Amour Books will cease active sales of the Work within a commercially reasonable time, subject to fulfillment of any pre-existing orders or distributor obligations.\n\nThe Author may not unilaterally terminate this Agreement or revoke the publishing license granted herein.`
+            },
+            {
+              n: "10", title: "Governing Law and Disputes",
+              body: `This Agreement is governed by applicable law. In the event of any dispute, the parties agree to attempt good-faith resolution before pursuing formal legal proceedings. Nothing in this Agreement prevents either party from seeking injunctive or emergency relief where necessary.`
+            },
+            {
+              n: "11", title: "No Legal or Therapeutic Services",
+              body: `Little Amour Books is a publisher. Nothing in this Agreement or in the services provided by Little Amour Books constitutes legal advice, therapeutic services, crisis support, or case representation. Authors are encouraged to seek independent legal advice regarding this Agreement.`
+            },
+            {
+              n: "12", title: "Entire Agreement",
+              body: `This Agreement, together with any separate publishing offer letter or addendum issued by Little Amour Books, constitutes the entire agreement between the parties with respect to the Work and supersedes all prior representations, understandings, and agreements.`
+            },
+          ].map(({ n, title, body }) => (
+            <div key={n} style={{ marginBottom: 28, paddingBottom: 28, borderBottom: "1px solid #E8DDF0" }}>
+              <h4 style={{ color: "#6E5572", fontFamily: "Georgia,serif", fontSize: 16, marginBottom: 8 }}>
+                {n}. {title}
+              </h4>
+              {body.split("\n\n").map((para, i) => (
+                <p key={i} style={{ color: "#2B2433", fontSize: 14, lineHeight: 1.85, marginBottom: 10, whiteSpace: "pre-line" }}>{para}</p>
+              ))}
+            </div>
+          ))}
+
+          <div style={{ background: "#F0EBF8", borderRadius: 10, padding: "20px 24px", marginTop: 8 }}>
+            <p style={{ color: "#6E5572", fontSize: 13, margin: 0 }}>
+              Questions about this agreement? Email <strong>hello@littleamour.com</strong>. We encourage all authors to seek independent legal advice before signing. Applying to Little Amour Books creates no immediate obligation — the formal agreement is signed during onboarding after acceptance.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 40, display: "flex", gap: 12 }}>
+          <button className="btn-gold" onClick={() => go("apply")}>Apply to Write With Us</button>
+          <button className="btn-line" onClick={() => go("write")}>← Back</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+
 function ApplyPage() {
   const [form, setForm] = useState({
     name: "", email: "", phone: "", whatsapp: "",
@@ -1138,6 +1259,9 @@ function ApplyPage() {
     issue: "", feeling: "", avoid: "",
     instagram: "", tiktok: "", facebook: "",
     consent: false,
+    // Publishing agreement initials
+    init1: "", init2: "", init3: "", init4: "", init5: "", init6: "",
+    agreementAccepted: false,
   });
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState("");
@@ -1149,6 +1273,15 @@ function ApplyPage() {
       return;
     }
     if (!form.consent) { setErr("Please tick the confirmation box so we know we're on the same page."); return; }
+    const initials = [form.init1, form.init2, form.init3, form.init4, form.init5, form.init6];
+    if (initials.some(i => !i.trim())) {
+      setErr("Please initial each clause in the Publishing Agreement section to confirm you have read and understood it.");
+      return;
+    }
+    if (!form.agreementAccepted) {
+      setErr("Please confirm your acceptance of the Publishing Agreement before submitting.");
+      return;
+    }
     if (form.theme === "suggest-new" && !form.suggestThemeName.trim()) {
       setErr("Give your new theme a short name so we know what you are thinking.");
       return;
@@ -1173,6 +1306,12 @@ function ApplyPage() {
         book_idea: form.issue.trim() || null,
         admin_note: contactNote,
         status: "new",
+        consent_initials: JSON.stringify({
+          i1: form.init1.trim(), i2: form.init2.trim(), i3: form.init3.trim(),
+          i4: form.init4.trim(), i5: form.init5.trim(), i6: form.init6.trim(),
+        }),
+        agreement_accepted: true,
+        agreement_accepted_at: new Date().toISOString(),
       });
     } catch (e) { /* non-fatal */ }
 
@@ -1324,7 +1463,52 @@ function ApplyPage() {
             <label><span>Facebook or other</span><input value={form.facebook} onChange={set("facebook")} placeholder="link or name" /></label>
           </fieldset>
 
-          <label className="check">
+          {/* ── PUBLISHING AGREEMENT INITIALS ── */}
+          <div style={{ marginTop: 28, padding: "24px 28px", background: "#F0EBF8", borderRadius: 12, border: "1.5px solid #C4A8D8" }}>
+            <p style={{ color: "#6E5572", fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Publishing Agreement</p>
+            <p style={{ color: "#5E5468", fontSize: 13, lineHeight: 1.7, marginBottom: 18 }}>
+              Please initial beside each clause to confirm you have read and understood it.
+              You can read the full agreement at{" "}
+              <a href="#" onClick={e => { e.preventDefault(); /* go handled via button */ }} style={{ color: "#9b7eb8" }}>littleamour.com/legal</a>.
+            </p>
+
+            {[
+              ["init1", "Little Amour Books invests in and controls the illustrated publishing package — including illustrations, cover, layout, formatting, files, and product pages — for every book made through the studio."],
+              ["init2", "Published books remain in the Little Amour Books catalog. The license granted is for the full term of copyright and does not include a default reversion of rights based on time or sales performance."],
+              ["init3", "I cannot require Little Amour Books to remove the book after publication simply because I change my mind or because the book becomes commercially successful."],
+              ["init4", "I cannot take the completed Little Amour Books edition — including its illustrations, cover, layout, and publishing files — elsewhere or license it to a third party without written permission."],
+              ["init5", "I keep my underlying story and lived experience, and I am free to write other unrelated books and work with other publishers on entirely different projects."],
+              ["init6", "A safety, privacy, correction, or legal review is available to me at any time by contacting Little Amour Books, and will be acted on in good faith."],
+            ].map(([field, text], idx) => (
+              <div key={field} style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 16, paddingBottom: 16, borderBottom: idx < 5 ? "1px solid #DDD3EA" : "none" }}>
+                <div style={{ flexShrink: 0 }}>
+                  <input
+                    value={form[field]}
+                    onChange={set(field)}
+                    maxLength={4}
+                    placeholder="Init."
+                    style={{
+                      width: 56, textAlign: "center", fontFamily: "Georgia, serif", fontStyle: "italic",
+                      fontSize: 16, padding: "6px 4px", borderRadius: 6,
+                      border: `1.5px solid ${form[field].trim() ? "#9b7eb8" : "#C4A8D8"}`,
+                      background: form[field].trim() ? "#fff" : "#F8F4FF",
+                      color: "#2B2433", outline: "none",
+                    }}
+                  />
+                </div>
+                <p style={{ color: "#2B2433", fontSize: 14, lineHeight: 1.7, margin: 0 }}><strong>{idx + 1}.</strong> {text}</p>
+              </div>
+            ))}
+
+            <label className="check" style={{ marginTop: 8, alignItems: "flex-start" }}>
+              <input type="checkbox" checked={form.agreementAccepted} onChange={set("agreementAccepted")} style={{ marginTop: 3 }} />
+              <span style={{ fontSize: 13, lineHeight: 1.65 }}>
+                I have read and I accept the <strong>Little Amour Books Author Publishing Agreement</strong>. I understand that the completed Little Amour Books edition of my book will remain in the Little Amour Books catalog and cannot be removed or taken elsewhere except as provided in the Agreement.
+              </span>
+            </label>
+          </div>
+
+          <label className="check" style={{ marginTop: 16 }}>
             <input type="checkbox" checked={form.consent} onChange={set("consent")} />
             <span>I understand that every book is reviewed for emotional safety before publication, and nothing is ever published without my approval and Little Amour Books' approval.</span>
           </label>
@@ -2452,6 +2636,7 @@ export default function App() {
   else if (route.page === "author") page = <AuthorPage author={AUTHORS[route.id] || AUTHORS.kirby} go={go} toast={toast} />;
   else if (route.page === "write") page = <WritePage go={go} />;
   else if (route.page === "apply") page = <ApplyPage />;
+  else if (route.page === "legal") page = <AuthorLegalPage go={go} />;
   else if (route.page === "admin") return <AdminDashboard onBack={() => go("home")} />;
   else if (route.page === "signin") {
     if (!account) page = <SignInPage onSignIn={(a) => setAccount(a)} />;
