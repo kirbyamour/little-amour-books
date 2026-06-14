@@ -1338,8 +1338,55 @@ const NAV_GROUPS = [
    ROOT
    ============================================================ */
 export default function AdminDashboard({ onBack }) {
+  const [unlocked, setUnlocked] = useState(false);
+  const [passcode, setPasscode] = useState("");
+  const [passErr, setPassErr] = useState(false);
   const [tab, setTab] = useState("overview");
   const [alerts, setAlerts] = useState({ applications: 0, themes: 0 });
+
+  if (!unlocked) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0E1525" }}>
+        <div style={{ textAlign: "center", padding: 40 }}>
+          <div style={{ fontSize: 36, marginBottom: 16 }}>🌙</div>
+          <h2 style={{ color: "#FAF4EB", fontFamily: "Georgia, serif", marginBottom: 8 }}>Little Amour Admin</h2>
+          <p style={{ color: "#8a7a9a", marginBottom: 24, fontSize: 14 }}>Enter your passcode to continue</p>
+          <input
+            type="password"
+            value={passcode}
+            onChange={e => { setPasscode(e.target.value); setPassErr(false); }}
+            onKeyDown={e => {
+              if (e.key === "Enter") {
+                if (passcode.trim().toLowerCase() === "love") setUnlocked(true);
+                else setPassErr(true);
+              }
+            }}
+            placeholder="Passcode"
+            style={{
+              display: "block", width: 220, margin: "0 auto 12px", padding: "10px 16px",
+              borderRadius: 8, border: passErr ? "1.5px solid #C0392B" : "1.5px solid #2a2f45",
+              background: "#131A30", color: "#FAF4EB", fontSize: 15, outline: "none", textAlign: "center",
+            }}
+            autoFocus
+          />
+          {passErr && <p style={{ color: "#C0392B", fontSize: 13, marginBottom: 8 }}>Incorrect passcode</p>}
+          <button
+            onClick={() => {
+              if (passcode.trim().toLowerCase() === "love") setUnlocked(true);
+              else setPassErr(true);
+            }}
+            style={{
+              background: "#E2A857", color: "#131A30", border: "none", borderRadius: 8,
+              padding: "10px 28px", fontWeight: 700, fontSize: 15, cursor: "pointer",
+            }}
+          >Enter</button>
+          <div style={{ marginTop: 20 }}>
+            <button onClick={onBack} style={{ background: "none", border: "none", color: "#5E5468", fontSize: 13, cursor: "pointer" }}>← Back to site</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     Promise.all([

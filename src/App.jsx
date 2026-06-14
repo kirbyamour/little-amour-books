@@ -22,7 +22,7 @@ const CORE_BOOKS = [
     id: "papers", title: "Mama Has Papers Today", author: "kirby", authorName: "Kirby Amour",
     age: "Ages 3–6", price: 14.99, motif: "moon", grad: ["#2A2150", "#4A3B6E"], status: "available",
     theme: "court", themeBadge: "Court & Legal",
-    tagline: "A gentle story about big changes, brave hearts, and finding safety.",
+    tagline: "A true story about big changes, brave hearts, and finding safety.",
     adult: "Family court. Legal paperwork spread across the kitchen table. A mother carrying custody stress while her child quietly watches — and wonders if the worry is somehow their fault.",
     child: "Little One sees Mama's serious papers and worries they did something wrong. With help from Mama and Moon Bear, Little One learns that grown-up papers are not theirs to carry — and love is still for them.",
     helps: ["Family court & custody", "A parent under legal stress", "\u201CIs it my fault?\u201D worries", "Repair after a tense day"],
@@ -56,7 +56,7 @@ const AUTHORS = {
     id: "kirby", name: "Kirby Amour", grad: ["#4A3B6E", "#8A6A8E"],
     look: { skin: "#C68863", hair: "#352523", top: "#5A4570", style: "waves" },
     tagline: "Survivor mama, storyteller, and founder of Little Amour Books.",
-    intro: "Kirby creates gentle children's books for families navigating hard things — family court, big changes, fear, and rebuilding — with the belief that children deserve stories that tell the truth gently.",
+    intro: "Kirby creates gentle children's books for families navigating hard things — family court, big changes, fear, and rebuilding — with the belief that children deserve stories that tell the truth with care.",
     supportLine: "Kirby is rebuilding after years of family court while raising her children solo. Your support goes directly to her family.",
     story: [
       "After living through abuse, relocation, family court, and the long process of rebuilding safety for her children, Kirby began writing the books she wished had existed for families like hers.",
@@ -330,7 +330,7 @@ function HomePage({ go }) {
           <p className="eyebrow gold">Children's books by survivor mothers</p>
           <h1>Some childhoods<br />need braver books.</h1>
           <p className="hero-sub">
-            We publish gentle stories about hard things — family court, leaving, fear,
+            We publish true stories about hard things — family court, leaving, fear,
             starting over — written by mothers who lived them. <strong>80% of every sale
             goes home with the author.</strong>
           </p>
@@ -364,7 +364,7 @@ function HomePage({ go }) {
                 The people best qualified to write these stories are the ones who can least
                 afford the time to write them.
               </p>
-              <p className="pull">So we built a press that pays survivors to tell the truth gently.</p>
+              <p className="pull">So we built a publishing house that pays survivors to tell the truth with courage.</p>
             </div>
           </Reveal>
           <Reveal delay={150}><img src="/hero-reading.png" className="hero-reading-img" alt="A mother and child reading together under the moon" /></Reveal>
@@ -387,7 +387,7 @@ function HomePage({ go }) {
               </div>
               <div className="story-card">
                 <span className="story-tag">For the child</span>
-                <p>A warm, age-true story with no graphic detail and no adult weight — just gentle language, a comfort friend, and an ending that lands on safety, every single time.</p>
+                <p>A warm, age-true story with no graphic detail and no adult weight — just honest language, a comfort friend, and an ending that lands on safety, every single time.</p>
               </div>
             </div>
             <p className="motto">Real-life issue. Child-safe story.</p>
@@ -464,13 +464,13 @@ function HomePage({ go }) {
         <div className="wrap narrow center">
           <Reveal>
             <h2 className="light">Where your money goes</h2>
-            <div className="split-bar" role="img" aria-label="80 percent to the author, 20 percent to the press">
-              <div className="split-a">80% <span>to the author</span></div>
-              <div className="split-b">20% <span>to the press</span></div>
+            <div className="split-bar" role="img" aria-label="75 percent to the author, 25 percent to the publisher">
+              <div className="split-a">75% <span>to the author</span></div>
+              <div className="split-b">25% <span>to the publisher</span></div>
             </div>
             <p className="lead light center-text">
               Author earnings have funded legal fees, first months' rent, and the quiet
-              luxury of one less terrifying bill. The press's share keeps the studio,
+              luxury of one less terrifying bill. The publisher's share keeps the studio,
               editing, and publishing free for every author — so a mother with no savings
               can still become a published author with an income.
             </p>
@@ -575,7 +575,7 @@ function BookPage({ book, go, toast }) {
             </div>
             <h3 className="bd-h">This book may help with</h3>
             <div className="chips">{book.helps.map((h) => <span key={h} className="chip">{h}</span>)}</div>
-            <h3 className="bd-h">A gentle note for caregivers</h3>
+            <h3 className="bd-h">A word for caregivers</h3>
             <p className="caregiver">{book.note}</p>
             <div className="buy-row">
               {coming ? (
@@ -666,8 +666,8 @@ function CheckoutPage({ book, go, onComplete }) {
 function ThanksPage({ order, go }) {
   if (!order) return null;
   const author = AUTHORS[order.book.author];
-  const authorBook = order.book.price * 0.8;
-  const press = order.book.price * 0.2;
+  const authorBook = order.book.price * 0.75;
+  const press = order.book.price * 0.25;
   const gifts = order.total - order.book.price;
   return (
     <section className="dusk page-top tall">
@@ -675,9 +675,9 @@ function ThanksPage({ order, go }) {
         <Moon size={44} />
         <h2 className="light">Thank you. Here's what just happened.</h2>
         <div className="thanks-card">
-          <p><span>To {author.name} (80% of the book)</span><span>${authorBook.toFixed(2)}</span></p>
+          <p><span>To {author.name} (75% of the book)</span><span>${authorBook.toFixed(2)}</span></p>
           {gifts > 0 ? <p><span>Your gifts to {author.name.split(" ")[0]} (100%)</span><span>${gifts.toFixed(2)}</span></p> : null}
-          <p><span>To the press — keeps the studio free for every author</span><span>${press.toFixed(2)}</span></p>
+          <p><span>To the publisher — keeps the studio free for every author</span><span>${press.toFixed(2)}</span></p>
           <p className="t-total"><span>A child gets braver words</span><span>priceless</span></p>
         </div>
         <p className="lead light center-text">
@@ -755,7 +755,7 @@ function AuthorPage({ author, go, toast }) {
    WHO-FOR CARDS
    ============================================================ */
 const WHO_CARDS = [
-  { icon: "♥", label: "You lived through hard family moments and believe children deserve gentle language for them." },
+  { icon: "♥", label: "You lived through hard family moments and believe children deserve honest language for them." },
   { icon: "✶", label: "You have an idea, a feeling, or a scene — even if you have no manuscript yet." },
   { icon: "☽", label: "You want privacy. A pen name, an illustrated portrait, or full anonymity is welcome here." },
   { icon: "□", label: "You have no savings, portfolio, or publishing experience to offer. That is not a requirement." },
@@ -810,7 +810,7 @@ const FAQS = [
   },
   {
     q: "What does it cost?",
-    a: "For founding survivor mother authors, admin and setup costs may be waived or sponsored. The press is sustained through its 25% share of net royalties after direct costs.",
+    a: "For founding survivor mother authors, admin and setup costs may be waived or sponsored. The publisher is sustained through its 25% share of net royalties after direct costs.",
   },
   {
     q: "Who publishes the book?",
@@ -822,7 +822,7 @@ const FAQS = [
   },
   {
     q: "Is this therapy or legal support?",
-    a: "No. Little Amour Books is a press. Our books may offer soft language for hard family moments, but we do not provide therapy, crisis services, legal advice, or case support.",
+    a: "No. Little Amour Books is a publisher. Our books may offer soft language for hard family moments, but we do not provide therapy, crisis services, legal advice, or case support.",
   },
   {
     q: "Can my story be declined?",
@@ -869,7 +869,7 @@ function WritePage({ go }) {
             <p className="eyebrow rose" style={{ marginBottom: 14 }}>Survivor mother with a story children need?</p>
             <h1 className="write-hero-h">Your story can become<br />a gentle children's book.</h1>
             <p className="write-hero-sub">
-              Little Amour Books helps survivor mothers turn lived wisdom into gentle children's books
+              Little Amour Books helps survivor mothers turn lived wisdom into children's books
               for hard family moments. You do not need a manuscript, a portfolio, savings, or
               publishing experience. Bring the moment, the feeling, and the truth you wish someone
               had explained softly. We help shape the book with you.
@@ -896,7 +896,7 @@ function WritePage({ go }) {
             </p>
             <p className="write-inv-p">
               Little Amour Books exists because those stories deserve to exist in the world — not as
-              testimony, not as proof, but as a gentle book a child can hold when words are too hard
+              testimony, not as proof, but as a book a child can hold when words are too hard
               to find.
             </p>
             <p className="write-inv-p write-inv-bold">
@@ -1131,7 +1131,8 @@ const APPLY_THEMES = [
 
 function ApplyPage() {
   const [form, setForm] = useState({
-    name: "", email: "", pen: "", stage: "Just an idea",
+    name: "", email: "", phone: "", whatsapp: "",
+    pen: "", stage: "Just an idea",
     theme: "", suggestThemeName: "", suggestThemeDesc: "",
     issue: "", feeling: "", avoid: "",
     instagram: "", tiktok: "", facebook: "",
@@ -1140,18 +1141,25 @@ function ApplyPage() {
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState("");
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
+
   const submit = async () => {
     if (!form.name.trim() || !form.email.trim() || !form.issue.trim()) {
-      setErr("Your name, email, and the story idea help us welcome you — the rest is optional.");
+      setErr("Your legal name, email, and story idea are the only things we need to welcome you.");
       return;
     }
-    if (!form.consent) { setErr("Please confirm the review checkbox so we know we're on the same page."); return; }
+    if (!form.consent) { setErr("Please tick the confirmation box so we know we're on the same page."); return; }
     if (form.theme === "suggest-new" && !form.suggestThemeName.trim()) {
-      setErr("Give your new theme a short name so we know what you're thinking.");
+      setErr("Give your new theme a short name so we know what you are thinking.");
       return;
     }
     setErr("");
-    // Save full application to author_applications table
+
+    // Build contact note for phone/whatsapp (stored in admin_note until columns are added)
+    const contactNote = [
+      form.phone.trim() ? `Phone: ${form.phone.trim()}` : null,
+      form.whatsapp.trim() ? `WhatsApp: ${form.whatsapp.trim()}` : null,
+    ].filter(Boolean).join(" | ") || null;
+
     try {
       await supabase.from("author_applications").insert({
         name: form.name.trim(),
@@ -1162,10 +1170,11 @@ function ApplyPage() {
         suggested_theme_name: form.theme === "suggest-new" ? form.suggestThemeName.trim() || null : null,
         book_title: null,
         book_idea: form.issue.trim() || null,
+        admin_note: contactNote,
         status: "new",
       });
     } catch (e) { /* non-fatal */ }
-    // If suggesting a new theme, save it to Supabase for admin review
+
     if (form.theme === "suggest-new" && form.suggestThemeName.trim()) {
       try {
         await supabase.from("proposed_categories").insert({
@@ -1175,10 +1184,11 @@ function ApplyPage() {
           example_book_idea: form.issue.trim() || null,
           status: "pending",
         });
-      } catch (e) { /* non-fatal — admin can follow up manually */ }
+      } catch (e) { /* non-fatal */ }
     }
     setSent(true);
   };
+
   if (sent) {
     return (
       <section className="dusk page-top tall">
@@ -1188,45 +1198,97 @@ function ApplyPage() {
           <p className="lead light center-text">
             Thank you, {form.name.split(" ")[0]}. We read every application slowly and
             kindly — usually within two weeks. There is no wrong way to have filled this
-            out, and there's no rush on our side or yours.
+            in, and there is no rush on our side or yours.
           </p>
           <p className="lead light center-text">Whatever happens next: your story matters, and so do you.</p>
         </div>
       </section>
     );
   }
+
   return (
     <section className="morning page-top">
       <div className="wrap form-wrap">
         <p className="eyebrow plum">The application</p>
-        <h2>Tell us a little. Only what you want.</h2>
+        <h2>Tell us a little.<br />Only what you want.</h2>
         <p className="lead">
-          No proof. No court papers. No graphic details — please don't relive anything for
-          this form. We're asking about the book you want to make, not the things you survived.
+          No proof. No court papers. No graphic details — please do not relive anything
+          for this form. We are asking about the book you want to make, not the things you survived.
         </p>
+
+        {/* Privacy notice */}
+        <div className="apply-privacy-box">
+          <div className="apply-privacy-lock" aria-hidden="true">&#128274;</div>
+          <div>
+            <p className="apply-privacy-title">Your legal information stays with our team only.</p>
+            <p className="apply-privacy-body">
+              Like any publisher, we need your legal name and contact details for our author
+              agreement and royalty payments. What the world sees on your book, in your author
+              bio, and on any public profile is entirely your choice.
+            </p>
+            <p className="apply-privacy-body">
+              You may publish under a <strong>pen name</strong>, use an
+              <strong> illustrated or symbolic portrait</strong>, or share no identifying
+              information publicly at all. Your legal details are never shared with readers,
+              other authors, or the public.
+            </p>
+          </div>
+        </div>
+
         <div className="form">
-          <label><span>Your name *</span><input value={form.name} onChange={set("name")} autoComplete="name" /></label>
-          <label><span>Email *</span><input type="email" value={form.email} onChange={set("email")} autoComplete="email" /></label>
-          <label><span>Pen name, if you'd like one (changeable anytime)</span><input value={form.pen} onChange={set("pen")} /></label>
+
+          {/* Legal contact */}
+          <div className="apply-section-label">Your legal contact details</div>
+          <p className="apply-section-note">Used internally for your author agreement and payments only. Never shown publicly.</p>
+
+          <label><span>Legal name *</span><input value={form.name} onChange={set("name")} autoComplete="name" placeholder="Your full legal name" /></label>
+          <label><span>Email address *</span><input type="email" value={form.email} onChange={set("email")} autoComplete="email" placeholder="your@email.com" /></label>
+
+          <div className="form-row">
+            <label>
+              <span>Phone number <em className="apply-opt">(optional)</em></span>
+              <input type="tel" value={form.phone} onChange={set("phone")} autoComplete="tel" placeholder="+61 400 000 000" />
+            </label>
+            <label>
+              <span>WhatsApp number <em className="apply-opt">(optional)</em></span>
+              <input type="tel" value={form.whatsapp} onChange={set("whatsapp")} placeholder="+61 400 000 000" />
+            </label>
+          </div>
+
+          {/* Public identity */}
+          <div className="apply-section-label" style={{ marginTop: 12 }}>Your public identity — your choice</div>
+          <p className="apply-section-note">This is what readers and the world will see. You are in complete control.</p>
+
+          <label>
+            <span>Pen name <em className="apply-opt">(optional — changeable anytime)</em></span>
+            <input value={form.pen} onChange={set("pen")} placeholder="e.g., M. Voss, or leave blank to decide later" />
+          </label>
+
+          {/* Book */}
+          <div className="apply-section-label" style={{ marginTop: 12 }}>Your book idea</div>
+
           <label><span>Where is your book right now?</span>
             <select value={form.stage} onChange={set("stage")}>
-              <option>Just an idea</option><option>Some notes or an outline</option>
-              <option>A rough manuscript</option><option>A finished manuscript</option>
+              <option>Just an idea</option>
+              <option>Some notes or an outline</option>
+              <option>A rough manuscript</option>
+              <option>A finished manuscript</option>
             </select>
           </label>
-          <label><span>Which theme does your book fall under?</span>
+
+          <label><span>Which theme does your book fall under? <em className="apply-opt">(optional)</em></span>
             <select value={form.theme} onChange={set("theme")}>
-              <option value="">— Select a theme (optional) —</option>
+              <option value="">— Select a theme —</option>
               {APPLY_THEMES.map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
           </label>
+
           {form.theme === "suggest-new" && (
             <div className="suggest-theme-box">
               <p className="suggest-theme-note">
-                New themes need admin approval before they go live. Describe your idea
-                and we'll review it — usually within a week.
+                New themes are reviewed before going live — usually within a week.
               </p>
               <label><span>Theme name *</span>
                 <input value={form.suggestThemeName} onChange={set("suggestThemeName")}
@@ -1238,28 +1300,42 @@ function ApplyPage() {
               </label>
             </div>
           )}
+
           <label><span>What hard thing does your story gently speak to? *</span>
-            <textarea rows={3} value={form.issue} onChange={set("issue")} placeholder="e.g., a child sensing family court stress; moving somewhere safe; big feelings after a hard season" />
+            <textarea rows={3} value={form.issue} onChange={set("issue")}
+              placeholder="e.g., a child sensing family court stress; moving somewhere safe; big feelings after a hard season" />
           </label>
-          <label><span>When a child finishes your book, what should they feel?</span>
-            <textarea rows={2} value={form.feeling} onChange={set("feeling")} placeholder="e.g., safe, not at fault, still loved" />
+
+          <label><span>When a child finishes your book, what should they feel? <em className="apply-opt">(optional)</em></span>
+            <textarea rows={2} value={form.feeling} onChange={set("feeling")}
+              placeholder="e.g., safe, not at fault, still loved" />
           </label>
-          <label><span>Anything you want us to avoid or be careful with?</span>
+
+          <label><span>Anything you want us to avoid or be careful with? <em className="apply-opt">(optional)</em></span>
             <textarea rows={2} value={form.avoid} onChange={set("avoid")} />
           </label>
+
+          {/* Social */}
           <fieldset className="social-set">
-            <legend>Your social media — optional, private to our team. It simply helps us hear your voice.</legend>
+            <legend>Social media — optional, private to our team. Helps us hear your voice.</legend>
             <label><span>Instagram</span><input value={form.instagram} onChange={set("instagram")} placeholder="@yourname" /></label>
             <label><span>TikTok</span><input value={form.tiktok} onChange={set("tiktok")} placeholder="@yourname" /></label>
             <label><span>Facebook or other</span><input value={form.facebook} onChange={set("facebook")} placeholder="link or name" /></label>
           </fieldset>
+
           <label className="check">
             <input type="checkbox" checked={form.consent} onChange={set("consent")} />
-            <span>I understand every book is lovingly reviewed for emotional safety before it can be published or sold, and nothing is ever published without my approval.</span>
+            <span>I understand that every book is reviewed for emotional safety before publication, and nothing is ever published without my approval and Little Amour Books' approval.</span>
           </label>
+
           {err ? <p className="form-err">{err}</p> : null}
+
           <button className="btn-gold" onClick={submit}>Send my application</button>
-          <p className="fine">Your application and social links are private to our team. Applying creates no obligation on either side.</p>
+
+          <div className="apply-footer-note">
+            <p>Your legal name, contact details, and social links are <strong>private to our team</strong> and will never be shared publicly.</p>
+            <p>Applying creates no obligation on either side.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -1442,7 +1518,7 @@ const KIRBY_SEED = {
       modelHint: "flux",
       seed: 487291,
       characters: [
-        { name: "Mama", desc: "Warm, tired-but-steady mother; dark hair loosely tied back; soft mustard cardigan and a small gold locket. Always gentle toward Little One." },
+        { name: "Mama", desc: "Warm, tired-but-steady mother; dark hair loosely tied back; soft mustard cardigan and a small gold locket. Always warm and steady with Little One." },
         { name: "Little One", desc: "Small child, around 4; dark curls; dusty-rose striped pajamas; carries Moon Bear everywhere. Curious and sensitive." },
         { name: "Moon Bear", desc: "A moonlight-cream plush bear with a crescent moon stitched over the heart and a worn left ear. Calm, wise, reassuring." },
       ],
@@ -1453,7 +1529,7 @@ const KIRBY_SEED = {
       id: "papers", title: "Mama Has Papers Today", status: "published", earnings: 218.4,
       collectionId: "coll_bld",
       characters: [
-        { name: "Mama", desc: "Warm, tired-but-steady mother; dark hair loosely tied back; soft mustard cardigan and a small gold locket. Always gentle toward Little One." },
+        { name: "Mama", desc: "Warm, tired-but-steady mother; dark hair loosely tied back; soft mustard cardigan and a small gold locket. Always warm and steady with Little One." },
         { name: "Little One", desc: "Small child, around 4; dark curls; dusty-rose striped pajamas; carries Moon Bear everywhere. Curious and sensitive." },
         { name: "Moon Bear", desc: "A moonlight-cream plush bear with a crescent moon stitched over the heart and a worn left ear. Calm, wise, reassuring." },
       ],
@@ -1660,7 +1736,7 @@ function KirbyStudio({ go, onSignOut }) {
 function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack }) {
   const onDone = () => onGoEditor("pages");
   const [msgs, setMsgs] = useState([
-    { role: "amora", text: "Hi Kirby — I'm Amora. Let's make this book together, one gentle step at a time.\n\nTell me what you have so far. It can be anything: just a feeling or an idea, a hard thing you want a child to understand, some page text you've already written, or even images you'd like to use. Where would you like to begin?" },
+    { role: "amora", text: "Hi Kirby — I'm Amora. Let's make this book together, one step at a time.\n\nTell me what you have so far. It can be anything: just a feeling or an idea, a hard thing you want a child to understand, some page text you've already written, or even images you'd like to use. Where would you like to begin?" },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1882,7 +1958,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
     try {
       const convo = msgs.map((m) => `${m.role === "amora" ? "Amora" : "Kirby"}: ${m.text}`).join("\n");
       const raw = await amora(
-        `From this conversation with Kirby, build a gentle children's picture book.\n\n${convo}\n\nReturn ONLY JSON, no markdown:\n{"title":"a fitting gentle title","characters":[{"name":"","desc":"vivid, consistent visual + emotional description for illustration consistency"}],"pages":[{"text":"page text, under 40 words, true to her idea and voice"}]}\nMake AT LEAST 24 pages (Amazon KDP requires a 24-page minimum for paperback picture books) — aim for 24 to 32. Pace the story gently across that many spreads; it is fine for some pages to be a single quiet line. Arc must move toward reassurance and safety. Preserve any exact page text Kirby gave; otherwise write in her spirit.`,
+        `From this conversation with Kirby, build a children's picture book.\n\n${convo}\n\nReturn ONLY JSON, no markdown:\n{"title":"a fitting title","characters":[{"name":"","desc":"vivid, consistent visual + emotional description for illustration consistency"}],"pages":[{"text":"page text, under 40 words, true to her idea and voice"}]}\nMake AT LEAST 24 pages (Amazon KDP requires a 24-page minimum for paperback picture books) — aim for 24 to 32. Pace the story quietly across that many spreads; it is fine for some pages to be a single quiet line. Arc must move toward reassurance and safety. Preserve any exact page text Kirby gave; otherwise write in her spirit.`,
         AMORA_SYS + " You are in STRUCTURED MODE: output valid JSON only."
       );
       const j = parseLoose(raw);
@@ -2131,7 +2207,7 @@ function BookEditor({ book, setBook, onBack, onSignOut, onAmora, savedFlash }) {
       const chars = book.characters.map((c) => `${c.name}: ${c.desc}`).join("\n") || "(none defined)";
       const pages = book.pages.map((p, i) => `Page ${i + 1}: ${p.text || "(empty)"}`).join("\n");
       const raw = await amora(
-        `Run a whole-book consistency and sense check on this children's picture book. The author's biggest worry is characters drifting or details contradicting between pages.\n\nCHARACTER BIBLE:\n${chars}\n\nPAGES:\n${pages}\n\nReturn ONLY JSON:\n{"verdict":"one warm sentence: does the book hold together?","issues":[{"type":"character|continuity|tone|arc|safety|length","where":"page number or 'overall'","note":"specific problem","fix":"concrete gentle suggestion"}],"praise":"one true thing done well"}\nFlag character drift (appearance, clothing, props, names changing), continuity slips, tone breaks too scary for a child, arc gaps (no reassurance/safe ending), and safety concerns. IMPORTANT: Amazon KDP requires a minimum of 24 pages for paperback picture books. This book currently has ${book.pages.length} page(s). If it has fewer than 24 pages, you MUST include a "length" issue noting how many more pages are needed and gently suggesting where the story could breathe into more spreads. If the book is consistent and long enough, return an empty issues array. Never invent problems.`,
+        `Run a whole-book consistency and sense check on this children's picture book. The author's biggest worry is characters drifting or details contradicting between pages.\n\nCHARACTER BIBLE:\n${chars}\n\nPAGES:\n${pages}\n\nReturn ONLY JSON:\n{"verdict":"one warm sentence: does the book hold together?","issues":[{"type":"character|continuity|tone|arc|safety|length","where":"page number or 'overall'","note":"specific problem","fix":"concrete suggestion"}],"praise":"one true thing done well"}\nFlag character drift (appearance, clothing, props, names changing), continuity slips, tone breaks too scary for a child, arc gaps (no reassurance/safe ending), and safety concerns. IMPORTANT: Amazon KDP requires a minimum of 24 pages for paperback picture books. This book currently has ${book.pages.length} page(s). If it has fewer than 24 pages, you MUST include a "length" issue noting how many more pages are needed and gently suggesting where the story could breathe into more spreads. If the book is consistent and long enough, return an empty issues array. Never invent problems.`,
         AMORA_SYS + " You are in STRUCTURED MODE: output valid JSON only."
       );
       setReport(parseLoose(raw));
@@ -2257,7 +2333,7 @@ function BookEditor({ book, setBook, onBack, onSignOut, onAmora, savedFlash }) {
 /* ---------------- Tiny per-page Amora chat ---------------- */
 function PageChat({ book, page, onClose, onApply }) {
   const idx = book.pages.findIndex((p) => p.id === page.id);
-  const [msgs, setMsgs] = useState([{ role: "amora", text: `Let's polish page ${idx + 1} together. Want it gentler, shorter, more magical, or truer to a character? Tell me — or ask me to rewrite it and I'll suggest a version you can accept.` }]);
+  const [msgs, setMsgs] = useState([{ role: "amora", text: `Let's polish page ${idx + 1} together. Want it softer, shorter, more magical, or truer to a character? Tell me — or ask me to rewrite it and I'll suggest a version you can accept.` }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState(null);
@@ -3326,6 +3402,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .write-hero-ctas { flex-direction: column; gap: 14px; }
   .write-final-btns { flex-direction: column; gap: 14px; }
 }
+
+/* ── APPLY PAGE ──────────────────────────────────────────── */
+.apply-privacy-box {
+  display: flex; gap: 16px; align-items: flex-start;
+  background: #f0f7ef; border: 1.5px solid #5a9e6f;
+  border-radius: 12px; padding: 20px 22px; margin-bottom: 32px;
+}
+.apply-privacy-lock { font-size: 26px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+.apply-privacy-title { font-weight: 700; color: #2d6a4f; margin: 0 0 6px; font-size: 0.97rem; }
+.apply-privacy-body { color: #3a5a47; font-size: 0.9rem; line-height: 1.55; margin: 0 0 6px; }
+.apply-privacy-body:last-child { margin-bottom: 0; }
+.apply-section-label {
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: #7a5c8a; margin: 20px 0 2px;
+}
+.apply-section-note { font-size: 0.82rem; color: #888; margin: 0 0 10px; }
+.apply-opt { font-style: italic; font-weight: 400; color: #aaa; font-size: 0.88em; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.apply-footer-note {
+  border-top: 1px solid #eee; padding-top: 14px; margin-top: 4px;
+}
+.apply-footer-note p { font-size: 0.82rem; color: #999; margin: 0 0 4px; }
+@media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
 
 ${STORE_CSS}
 `;
