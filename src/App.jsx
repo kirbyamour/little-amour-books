@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
 import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS } from "./Bookstore";
+import { supabase } from "./supabaseClient";
 
 /* ============================================================
    LITTLE AMOUR BOOKS — rev 2
@@ -817,9 +818,21 @@ function WritePage({ go }) {
   );
 }
 
+const APPLY_THEMES = [
+  { value: "court",        label: "Court & Legal Days" },
+  { value: "safe-home",    label: "Leaving & Safe Homes" },
+  { value: "big-feelings", label: "Big Feelings & Anxiety" },
+  { value: "two-homes",    label: "Two Homes / Custody" },
+  { value: "quiet-courage",label: "Quiet Courage" },
+  { value: "transitions",  label: "Big Changes & Transitions" },
+  { value: "promises",     label: "Broken Promises" },
+  { value: "suggest-new",  label: "I have a new theme idea →" },
+];
+
 function ApplyPage() {
   const [form, setForm] = useState({
     name: "", email: "", pen: "", stage: "Just an idea",
+    theme: "", suggestThemeName: "", suggestThemeDesc: "",
     issue: "", feeling: "", avoid: "",
     instagram: "", tiktok: "", facebook: "",
     consent: false,
@@ -833,16 +846,23 @@ function ApplyPage() {
       return;
     }
     if (!form.consent) { setErr("Please confirm the review checkbox so we know we're on the same page."); return; }
+    if (form.theme === "suggest-new" && !form.suggestThemeName.trim()) {
+      setErr("Give your new theme a short name so we know what you're thinking.");
+      return;
+    }
     setErr("");
-    try {
-      let list = [];
+    // If suggesting a new theme, save it to Supabase for admin review
+    if (form.theme === "suggest-new" && form.suggestThemeName.trim()) {
       try {
-        const r = await window.storage.get("lab:applications");
-        if (r && r.value) list = JSON.parse(r.value);
-      } catch (e) { /* first application */ }
-      list.push({ ...form, at: new Date().toISOString() });
-      await window.storage.set("lab:applications", JSON.stringify(list));
-    } catch (e) { /* non-fatal */ }
+        await supabase.from("proposed_categories").insert({
+          proposed_by: form.email,
+          name: form.suggestThemeName.trim(),
+          description: form.suggestThemeDesc.trim() || null,
+          example_book_idea: form.issue.trim() || null,
+          status: "pending",
+        });
+      } catch (e) { /* non-fatal — admin can follow up manually */ }
+    }
     setSent(true);
   };
   if (sent) {
@@ -880,6 +900,30 @@ function ApplyPage() {
               <option>A rough manuscript</option><option>A finished manuscript</option>
             </select>
           </label>
+          <label><span>Which theme does your book fall under?</span>
+            <select value={form.theme} onChange={set("theme")}>
+              <option value="">— Select a theme (optional) —</option>
+              {APPLY_THEMES.map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </label>
+          {form.theme === "suggest-new" && (
+            <div className="suggest-theme-box">
+              <p className="suggest-theme-note">
+                New themes need admin approval before they go live. Describe your idea
+                and we'll review it — usually within a week.
+              </p>
+              <label><span>Theme name *</span>
+                <input value={form.suggestThemeName} onChange={set("suggestThemeName")}
+                  placeholder="e.g., When a Grandparent Is in Jail" />
+              </label>
+              <label><span>What situations would this theme cover?</span>
+                <textarea rows={2} value={form.suggestThemeDesc} onChange={set("suggestThemeDesc")}
+                  placeholder="e.g., Children with incarcerated family members — shame, visiting day, explaining absence" />
+              </label>
+            </div>
+          )}
           <label><span>What hard thing does your story gently speak to? *</span>
             <textarea rows={3} value={form.issue} onChange={set("issue")} placeholder="e.g., a child sensing family court stress; moving somewhere safe; big feelings after a hard season" />
           </label>
@@ -2425,6 +2469,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .nav-link { padding: 7px 8px; font-size: 13px; }
   .brand span { display: none; }
 }
+
+/* suggest theme box in apply form */
+.suggest-theme-box { background: #F5F0FB; border: 1.5px solid #D8CBE8; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.suggest-theme-note { font-size: 13.5px; color: #6E5572; line-height: 1.6; margin: 0; }
 
 ${STORE_CSS}
 `;

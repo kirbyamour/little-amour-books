@@ -532,6 +532,108 @@ function GoalDashboard() {
 }
 
 /* ============================================================
+   SECTION: Proposed Categories
+   ============================================================ */
+function ProposedCategories() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null);
+  const [note, setNote] = useState({});
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    const { data } = await supabase
+      .from("proposed_categories")
+      .select("*")
+      .order("created_at", { ascending: false });
+    setRows(data || []);
+    setLoading(false);
+  }
+
+  async function decide(id, status) {
+    setSaving(id);
+    await supabase.from("proposed_categories").update({
+      status,
+      admin_note: note[id] || null,
+      reviewed_at: new Date().toISOString(),
+    }).eq("id", id);
+    setSaving(null);
+    load();
+  }
+
+  const pending = rows.filter(r => r.status === "pending");
+  const decided = rows.filter(r => r.status !== "pending");
+
+  if (loading) return <Section title="Proposed Themes"><p className="a-meta">Loading…</p></Section>;
+
+  return (
+    <>
+      <Section title={`Proposed Themes — ${pending.length} pending`}>
+        {pending.length === 0 ? (
+          <p className="a-meta">No pending theme proposals. When an applicant suggests a new theme, it appears here for review.</p>
+        ) : pending.map(r => (
+          <div key={r.id} className="cat-card cat-pending">
+            <div className="cat-header">
+              <strong className="cat-name">{r.name}</strong>
+              <span className="cat-badge pending">Pending</span>
+            </div>
+            {r.description && <p className="cat-desc">{r.description}</p>}
+            {r.example_book_idea && (
+              <p className="cat-example"><em>Example book idea:</em> {r.example_book_idea}</p>
+            )}
+            <p className="cat-meta">Proposed by {r.proposed_by || "anonymous"} · {new Date(r.created_at).toLocaleDateString()}</p>
+            <div className="cat-actions">
+              <input
+                className="cat-note-input"
+                placeholder="Optional note to author (e.g., approved — welcome aboard!)"
+                value={note[r.id] || ""}
+                onChange={e => setNote({ ...note, [r.id]: e.target.value })}
+              />
+              <button
+                className="a-btn gold"
+                disabled={saving === r.id}
+                onClick={() => decide(r.id, "approved")}
+              >
+                ✓ Approve theme
+              </button>
+              <button
+                className="a-btn cat-reject"
+                disabled={saving === r.id}
+                onClick={() => decide(r.id, "rejected")}
+              >
+                ✕ Reject
+              </button>
+            </div>
+          </div>
+        ))}
+      </Section>
+
+      {decided.length > 0 && (
+        <Section title="Previously reviewed">
+          <table className="a-table">
+            <thead>
+              <tr><th>Theme</th><th>Proposed by</th><th>Status</th><th>Note</th><th>Reviewed</th></tr>
+            </thead>
+            <tbody>
+              {decided.map(r => (
+                <tr key={r.id}>
+                  <td><strong>{r.name}</strong>{r.description && <><br/><span style={{fontSize:12,color:P.inkSoft}}>{r.description}</span></>}</td>
+                  <td>{r.proposed_by || "—"}</td>
+                  <td><span className={"cat-badge " + r.status}>{r.status}</span></td>
+                  <td style={{fontSize:13,color:P.inkSoft}}>{r.admin_note || "—"}</td>
+                  <td style={{fontSize:12,color:P.inkSoft}}>{r.reviewed_at ? new Date(r.reviewed_at).toLocaleDateString() : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      )}
+    </>
+  );
+}
+
+/* ============================================================
    SHARED UI
    ============================================================ */
 function Section({ title, action, children }) {
@@ -630,6 +732,20 @@ const ADMIN_CSS = `
 .sim-goal { background: #ffffff18; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; margin-top: 8px; }
 .sim-goal strong { font-size: 22px; }
 @media (max-width: 700px) { .sim-grid { grid-template-columns: 1fr; } .admin-body { padding: 16px; } }
+.cat-card { border: 1.5px solid #E9DCC8; border-radius: 10px; padding: 18px 20px; margin-bottom: 14px; }
+.cat-pending { border-color: #D8CBE8; background: #FAF6FF; }
+.cat-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.cat-name { font-size: 16px; }
+.cat-badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; }
+.cat-badge.pending { background: #EDE4F8; color: #6E5572; }
+.cat-badge.approved { background: #D4EFE0; color: #27AE60; }
+.cat-badge.rejected { background: #FADEDB; color: #C0392B; }
+.cat-desc { font-size: 14px; color: ${P.inkSoft}; margin: 0 0 6px; }
+.cat-example { font-size: 13px; color: ${P.inkSoft}; margin: 0 0 8px; }
+.cat-meta { font-size: 12px; color: ${P.inkSoft}; margin: 0 0 14px; }
+.cat-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.cat-note-input { flex: 1 1 220px; border: 1.5px solid #DDD0BB; border-radius: 7px; padding: 7px 10px; font-size: 13px; font-family: inherit; color: ${P.ink}; min-width: 0; }
+.cat-reject { background: #FADEDB !important; color: ${P.red} !important; }
 `;
 
 /* ============================================================
@@ -643,6 +759,7 @@ const TABS = [
   { id: "royalties", label: "Royalty Rules" },
   { id: "production", label: "Production Costs" },
   { id: "sponsors", label: "Sponsor Funds" },
+  { id: "categories", label: "Proposed Themes" },
 ];
 
 export default function AdminDashboard({ onBack }) {
@@ -669,6 +786,7 @@ export default function AdminDashboard({ onBack }) {
         {tab === "royalties" && <RoyaltyRules />}
         {tab === "production" && <ProductionCosts />}
         {tab === "sponsors" && <SponsorFunds />}
+        {tab === "categories" && <ProposedCategories />}
       </div>
     </div>
   );
