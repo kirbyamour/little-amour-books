@@ -1321,6 +1321,7 @@ const NAV_GROUPS = [
     { id: "chatlogs", label: "Chat Logs" },
     { id: "pendingbooks", label: "Pending Books", alertKey: "pendingbooks" },
     { id: "newsletter", label: "Newsletter" },
+    { id: "authoraccounts", label: "Author Accounts" },
   ]},
   { label: "Growth", items: [
     { id: "sponsorcrm", label: "Sponsors" },
@@ -1340,6 +1341,153 @@ const NAV_GROUPS = [
    ROOT
    ============================================================ */
 
+
+
+/* ============================================================
+   AUTHOR ACCOUNTS — create & manage author logins
+   ============================================================ */
+function AuthorAccounts() {
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ pen_name: "", email: "", password: "", legal_name: "" });
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState("");
+  const [showPw, setShowPw] = useState({});
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("author_profiles").select("*").order("created_at");
+    setAccounts(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
+
+  const create = async () => {
+    if (!form.pen_name.trim() || !form.email.trim() || !form.password.trim()) {
+      flash("Pen name, email, and password are all required."); return;
+    }
+    setSaving(true);
+    const { error } = await supabase.from("author_profiles").insert({
+      pen_name: form.pen_name.trim(),
+      email: form.email.trim().toLowerCase(),
+      password: form.password.trim(),
+      legal_name: form.legal_name.trim() || null,
+      is_admin: false,
+      active: true,
+    });
+    if (error) { flash("Error: " + error.message); }
+    else { flash("✓ Account created for " + form.pen_name); setForm({ pen_name: "", email: "", password: "", legal_name: "" }); load(); }
+    setSaving(false);
+  };
+
+  const toggle = async (id, active) => {
+    await supabase.from("author_profiles").update({ active: !active }).eq("id", id);
+    load();
+  };
+
+  const resetPw = async (id, newPw) => {
+    if (!newPw) return;
+    await supabase.from("author_profiles").update({ password: newPw }).eq("id", id);
+    flash("✓ Password updated");
+    load();
+  };
+
+  const P2 = { gold: "#E2A857", mauve: "#9b7eb8", green: "#4A9B6F", red: "#C0392B", ink: "#131A30", cream: "#FAF4EB", muted: "#8a7a9a", card: "#1a2235", border: "#2a2f45", night: "#0E1525" };
+
+  return (
+    <div style={{ padding: "28px 32px", maxWidth: 720 }}>
+      <h2 style={{ color: P2.cream, fontFamily: "Georgia,serif", marginBottom: 4 }}>Author Accounts</h2>
+      <p style={{ color: P2.muted, fontSize: 14, marginBottom: 28 }}>Create logins for your holder moms. They sign in at the Author Studio using their pen name.</p>
+
+      {/* Create form */}
+      <div style={{ background: P2.card, border: `1px solid ${P2.border}`, borderRadius: 12, padding: "20px 24px", marginBottom: 32 }}>
+        <p style={{ color: P2.mauve, fontSize: 12, textTransform: "uppercase", letterSpacing: 1, marginBottom: 16 }}>Create New Account</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ color: P2.muted, fontSize: 12 }}>Pen Name (public)</span>
+            <input value={form.pen_name} onChange={e => setForm(f => ({...f, pen_name: e.target.value}))}
+              placeholder="e.g. Mara Voss"
+              style={{ background: P2.night, border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 14, outline: "none" }} />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ color: P2.muted, fontSize: 12 }}>Legal Name (private)</span>
+            <input value={form.legal_name} onChange={e => setForm(f => ({...f, legal_name: e.target.value}))}
+              placeholder="Stays hidden from public"
+              style={{ background: P2.night, border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 14, outline: "none" }} />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ color: P2.muted, fontSize: 12 }}>Email</span>
+            <input value={form.email} onChange={e => setForm(f => ({...f, email: e.target.value}))}
+              placeholder="Their email address"
+              style={{ background: P2.night, border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 14, outline: "none" }} />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ color: P2.muted, fontSize: 12 }}>Password</span>
+            <input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))}
+              placeholder="Choose a password"
+              style={{ background: P2.night, border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 14, outline: "none" }} />
+          </label>
+        </div>
+        <button onClick={create} disabled={saving}
+          style={{ marginTop: 16, background: P2.mauve, color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 700, fontSize: 14, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
+          {saving ? "Creating…" : "Create Account"}
+        </button>
+      </div>
+
+      {/* Accounts list */}
+      {loading ? <p style={{ color: P2.muted }}>Loading…</p> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {accounts.length === 0 && <p style={{ color: P2.muted, fontSize: 14 }}>No author accounts yet.</p>}
+          {accounts.map(a => (
+            <div key={a.id} style={{ background: P2.card, border: `1px solid ${a.active ? P2.border : P2.red + "44"}`, borderRadius: 10, padding: "14px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <p style={{ color: P2.cream, fontWeight: 700, margin: 0 }}>{a.pen_name} {a.is_admin && <span style={{ fontSize: 11, background: P2.mauve, color: "#fff", borderRadius: 4, padding: "1px 6px", marginLeft: 6 }}>Admin</span>}</p>
+                  <p style={{ color: P2.muted, fontSize: 13, margin: "2px 0 0" }}>{a.email}</p>
+                  {a.legal_name && <p style={{ color: P2.muted, fontSize: 12, margin: "2px 0 0" }}>Legal: {a.legal_name}</p>}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <ResetPasswordInline id={a.id} onReset={resetPw} P2={P2} />
+                  {!a.is_admin && (
+                    <button onClick={() => toggle(a.id, a.active)}
+                      style={{ background: a.active ? "#2a1f35" : P2.green, color: a.active ? P2.red : "#fff", border: `1px solid ${a.active ? P2.red : P2.green}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>
+                      {a.active ? "Deactivate" : "Reactivate"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {toast && <div style={{ marginTop: 20, padding: "10px 16px", background: toast.startsWith("Error") ? P2.red : P2.green, color: "#fff", borderRadius: 8, fontSize: 13 }}>{toast}</div>}
+    </div>
+  );
+}
+
+function ResetPasswordInline({ id, onReset, P2 }) {
+  const [open, setOpen] = useState(false);
+  const [val, setVal] = useState("");
+  if (!open) return (
+    <button onClick={() => setOpen(true)}
+      style={{ background: "transparent", color: P2.muted, border: `1px solid ${P2.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>
+      Reset PW
+    </button>
+  );
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <input type="password" value={val} onChange={e => setVal(e.target.value)} placeholder="New password"
+        style={{ background: "#0E1525", border: `1px solid ${P2.border}`, borderRadius: 6, padding: "4px 8px", color: P2.cream, fontSize: 12, width: 120, outline: "none" }} />
+      <button onClick={() => { onReset(id, val); setOpen(false); setVal(""); }}
+        style={{ background: P2.gold, color: "#131A30", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>Save</button>
+      <button onClick={() => { setOpen(false); setVal(""); }}
+        style={{ background: "transparent", color: P2.muted, border: "none", fontSize: 12, cursor: "pointer" }}>✕</button>
+    </div>
+  );
+}
 
 /* ============================================================
    NEWSLETTER — Amora drafts email newsletters for subscribers
@@ -1712,6 +1860,7 @@ export default function AdminDashboard({ onBack }) {
       case "chatlogs":     return <ChatLogs />;
       case "pendingbooks":  return <PendingBooks />;
       case "newsletter":    return <NewsletterDraft />;
+      case "authoraccounts": return <AuthorAccounts />;
       case "sponsorcrm":   return <SponsorCRM />;
       case "goal":         return <GoalDashboard />;
       case "simulator":    return <Simulator />;

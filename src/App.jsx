@@ -1343,19 +1343,36 @@ function ApplyPage() {
 }
 
 /* ---------------- Sign in + author dashboard ---------------- */
-const ACCOUNTS = {
-  "hi@kirbyamour.com": { pw: "love", id: "kirby", name: "Kirby Amour" },
-};
-
 function SignInPage({ onSignIn }) {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
-  const tryIn = () => {
-    const acct = ACCOUNTS[email.trim().toLowerCase()];
-    if (acct && acct.pw === pw) { setErr(""); onSignIn(acct.id); }
-    else setErr("We don't recognize that email and password together. Try again — or tour the demo studio below.");
+  const [loading, setLoading] = useState(false);
+
+  const tryIn = async () => {
+    const e = email.trim().toLowerCase();
+    if (!e || !pw) { setErr("Please enter your email and password."); return; }
+    setLoading(true);
+    setErr("");
+    try {
+      const { data, error } = await supabase
+        .from("author_profiles")
+        .select("*")
+        .eq("email", e)
+        .eq("password", pw)
+        .eq("active", true)
+        .maybeSingle();
+      if (error || !data) {
+        setErr("We don\'t recognize that email and password. Try again.");
+      } else {
+        onSignIn({ id: data.id, name: data.pen_name, email: data.email, isKirby: data.is_admin });
+      }
+    } catch(ex) {
+      setErr("Something went wrong. Please try again.");
+    }
+    setLoading(false);
   };
+
   return (
     <section className="dusk page-top tall">
       <div className="wrap form-wrap">
@@ -1366,9 +1383,7 @@ function SignInPage({ onSignIn }) {
           <label><span>Email</span><input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" onKeyDown={(e) => e.key === "Enter" && tryIn()} /></label>
           <label><span>Password</span><input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && tryIn()} /></label>
           {err ? <p className="form-err">{err}</p> : null}
-          <button className="btn-gold" onClick={tryIn}>Sign in</button>
-          <button className="btn-line" onClick={() => onSignIn("mara")}>Tour the demo studio as Mara</button>
-          <p className="fine light-fine">Prototype sign-in: credentials are checked in the page itself, which is fine for trying the studio but not for real accounts — secure authentication arrives at deployment.</p>
+          <button className="btn-gold" onClick={tryIn} disabled={loading}>{loading ? "Signing in…" : "Sign in"}</button>
         </div>
       </div>
     </section>
@@ -1376,7 +1391,7 @@ function SignInPage({ onSignIn }) {
 }
 
 const DASH_SEED = {
-  author: "Mara Voss",
+  author: author?.name || "Author",
   books: [
     { id: "bluebag", title: "The Night We Packed the Blue Bag", status: "approved", statusLabel: "Approved — launching soon", earnings: 0 },
     { id: "lighthouse", title: "The Lighthouse Keeps Its Promise", status: "changes", statusLabel: "Changes requested", earnings: 0 },
@@ -1389,7 +1404,7 @@ const DASH_SEED = {
   ],
 };
 
-function DashboardPage({ go, onSignOut }) {
+function DashboardPage({ go, author, onSignOut }) {
   const [reply, setReply] = useState("");
   const [thread, setThread] = useState(DASH_SEED.feedback);
   const send = () => {
@@ -2419,8 +2434,8 @@ export default function App() {
   else if (route.page === "admin") return <AdminDashboard onBack={() => go("home")} />;
   else if (route.page === "signin") {
     if (!account) page = <SignInPage onSignIn={(a) => setAccount(a)} />;
-    else if (account === "kirby") page = <KirbyStudio go={go} onSignOut={() => { setAccount(null); go("home"); }} />;
-    else page = <DashboardPage go={go} onSignOut={() => { setAccount(null); go("home"); }} />;
+    else if (account?.isKirby) page = <KirbyStudio go={go} onSignOut={() => { setAccount(null); go("home"); }} />;
+    else page = <DashboardPage go={go} author={account} onSignOut={() => { setAccount(null); go("home"); }} />;
   }
 
   const NAV = [
