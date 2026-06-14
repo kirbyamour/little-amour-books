@@ -592,7 +592,7 @@ function SponsorBand({ go }) {
 function TrustSection() {
   const badges = [
     { icon: "📖", label: "12 books", sub: "for hard family moments" },
-    { icon: "💸", label: "80% to authors", sub: "survivor mothers rebuilding" },
+    { icon: "💸", label: "75% to authors", sub: "survivor mothers rebuilding" },
     { icon: "🔒", label: "Privacy first", sub: "author identities protected" },
     { icon: "🌱", label: "Mission-led", sub: "every purchase funds healing" },
   ];

@@ -331,7 +331,7 @@ function HomePage({ go }) {
           <h1>Some childhoods<br />need braver books.</h1>
           <p className="hero-sub">
             We publish true stories about hard things — family court, leaving, fear,
-            starting over — written by mothers who lived them. <strong>80% of every sale
+            starting over — written by mothers who lived them. <strong>75% of every sale
             goes home with the author.</strong>
           </p>
           <div className="hero-cta">
@@ -509,7 +509,7 @@ function HomePage({ go }) {
             <p className="lead light center-text">
               Bring an idea, a memory, a half-finished notebook. Our AI studio and our
               editors walk beside you from first page to published book on Amazon. You keep
-              your privacy, your voice, and 80% of every sale.
+              your privacy, your voice, and 75% of every sale.
             </p>
             <button className="btn-gold" onClick={() => go("apply")}>Apply to write with us</button>
           </Reveal>
@@ -593,7 +593,7 @@ function BookPage({ book, go, toast }) {
                 </>
               )}
             </div>
-            <p className="fine">80% of every direct sale goes to {book.authorName}. Created in our AI book studio with her story at the center, and reviewed for emotional safety before publication.</p>
+            <p className="fine">75% of every direct sale goes to {book.authorName}. Created in our AI book studio with her story at the center, and reviewed for emotional safety before publication.</p>
           </div>
         </div>
       </div>
@@ -699,7 +699,7 @@ function AuthorsPage({ go }) {
         <p className="lead">
           Our authors write under the names that keep them safe — illustrated portraits
           protect privacy until an author chooses otherwise. What they earn is theirs to
-          keep: 80% of every sale.
+          keep: 75% of every sale.
         </p>
         <div className="author-grid">
           {Object.values(AUTHORS).map((a) => (
@@ -1433,7 +1433,7 @@ function DashboardPage({ go, onSignOut }) {
               <p><span>Lifetime earnings</span><span>${DASH_SEED.earnings.lifetime.toFixed(2)}</span></p>
               <p className="co-total"><span>Next payout</span><span>{DASH_SEED.earnings.nextPayout}</span></p>
             </div>
-            <p className="fine">You keep 80% of every sale and 80% of net Amazon royalties. Statements itemize every book, every month.</p>
+            <p className="fine">You keep 75% of every sale and 75% of net Amazon royalties. Statements itemize every book, every month.</p>
           </div>
 
           <div className="dash-col">
@@ -1712,7 +1712,7 @@ function KirbyStudio({ go, onSignOut }) {
                 <p><span>Reader gifts — 100% yours</span><span>$42.00</span></p>
                 <p className="co-total"><span>Next payout</span><span>July 1</span></p>
               </div>
-              <p className="fine">You keep 80% of every sale and 80% of net Amazon royalties, plus all reader gifts.</p>
+              <p className="fine">You keep 75% of every sale and 75% of net Amazon royalties, plus all reader gifts.</p>
             </div>
           </div>
         </div>
@@ -2457,7 +2457,7 @@ export default function App() {
           </div>
           <p className="foot-small">
             Little Amour Books is a press — creative and publishing support for survivor
-            mothers. We are not therapy, legal advice, or crisis support. 80% of every sale
+            mothers. We are not therapy, legal advice, or crisis support. 75% of every sale
             goes to the author. Books are published to Amazon under the Little Amour imprint
             with the author's approval.
           </p>
