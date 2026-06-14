@@ -1321,6 +1321,7 @@ const NAV_GROUPS = [
     { id: "chatlogs", label: "Chat Logs" },
     { id: "pendingbooks", label: "Pending Books", alertKey: "pendingbooks" },
     { id: "newsletter", label: "Newsletter" },
+    { id: "lachemails", label: "Launch Emails", alertKey: "lachemails" },
     { id: "authoraccounts", label: "Author Accounts" },
   ]},
   { label: "Growth", items: [
@@ -1342,6 +1343,293 @@ const NAV_GROUPS = [
    ============================================================ */
 
 
+
+
+/* ============================================================
+   LAUNCH EMAILS — celebrate published authors, admin-approved
+   ============================================================ */
+function LaunchEmails() {
+  const [drafts, setDrafts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(null);
+  const [saving, setSaving] = useState(null);
+  const [toast, setToast] = useState("");
+  const [filter, setFilter] = useState("draft");
+  const [regen, setRegen] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("launch_emails").select("*").order("created_at", { ascending: false });
+    setDrafts(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 4000); };
+
+  const update = (id, patch) => setDrafts(ds => ds.map(d => d.id === id ? { ...d, ...patch } : d));
+
+  const saveEdits = async (d) => {
+    setSaving(d.id);
+    await supabase.from("launch_emails").update({
+      subject: d.subject,
+      celebration_message: d.celebration_message,
+      instagram_caption: d.instagram_caption,
+      facebook_post: d.facebook_post,
+      tiktok_hook: d.tiktok_hook,
+      hashtags: d.hashtags,
+      cover_image_url: d.cover_image_url,
+    }).eq("id", d.id);
+    setSaving(null);
+    flash("✓ Saved");
+  };
+
+  const regenerateField = async (d, field) => {
+    setRegen(field);
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 400,
+          system: "You are Amora, the warm heart of Little Amour Books. Plain text only.",
+          messages: [{ role: "user", content: `Rewrite just the ${field.replace(/_/g, " ")} for this book launch.
+Book: "${d.book_title}"
+Author: ${d.author_name}
+Be warm, celebratory, and survivor-centered. No markdown. 
+Return ONLY the text for that field, nothing else.` }],
+        }),
+      });
+      const j = await res.json();
+      const text = j.content?.[0]?.text || "";
+      update(d.id, { [field]: text });
+    } catch(e) { flash("Error regenerating — try again."); }
+    setRegen(null);
+  };
+
+  const sendEmail = async (d) => {
+    if (!window.confirm(`Send celebration email to ${d.author_email}?`)) return;
+    setSaving(d.id);
+
+    const saleLink = `https://littleamour.com/book/${d.book_submission_id || ""}`;
+
+    const html = `<div style="font-family:Georgia,serif;max-width:600px;margin:0 auto;background:#FAF4EB;padding:0;border-radius:12px;overflow:hidden;">
+      
+      <!-- Header -->
+      <div style="background:linear-gradient(135deg,#2A1F45 0%,#4A3060 100%);padding:40px 32px;text-align:center;">
+        <p style="color:#E2A857;font-size:12px;letter-spacing:.15em;text-transform:uppercase;margin:0 0 10px;">Little Amour Books</p>
+        <h1 style="color:#FAF4EB;font-size:28px;margin:0 0 10px;font-weight:normal;">We are so proud of you 🌙</h1>
+        <p style="color:#C4A8D8;font-size:15px;margin:0;">Your book has been published.</p>
+      </div>
+
+      <!-- Book title banner -->
+      <div style="background:#9b7eb8;padding:16px 32px;text-align:center;">
+        <p style="color:#fff;font-size:18px;font-style:italic;margin:0;">"${d.book_title || "Your Book"}"</p>
+      </div>
+
+      ${d.cover_image_url ? `<!-- Book cover image -->
+      <div style="text-align:center;padding:28px 32px 0;">
+        <img src="${d.cover_image_url}" alt="Book cover" style="max-width:240px;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);"/>
+      </div>` : ""}
+
+      <!-- Celebration message -->
+      <div style="padding:32px 40px;">
+        <p style="color:#2B2433;font-size:15px;line-height:1.8;margin:0 0 24px;">${(d.celebration_message || "").replace(/\n/g, "<br/>")}</p>
+        
+        <div style="background:#fff;border-radius:10px;padding:20px 24px;margin:0 0 24px;border:1px solid #e8ddf0;">
+          <p style="color:#9b7eb8;font-size:11px;text-transform:uppercase;letter-spacing:.1em;margin:0 0 10px;">Your book is now live</p>
+          <a href="${saleLink}" style="display:inline-block;background:#E2A857;color:#131A30;text-decoration:none;font-weight:bold;padding:12px 28px;border-radius:8px;font-size:14px;">View Your Book →</a>
+          <p style="color:#999;font-size:12px;margin:10px 0 0;">${saleLink}</p>
+        </div>
+
+        <!-- Social media pack -->
+        <div style="border-top:1px solid #e8ddf0;padding-top:24px;">
+          <p style="color:#2B2433;font-size:16px;font-weight:bold;margin:0 0 6px;">Your launch kit 🎉</p>
+          <p style="color:#7a6a8a;font-size:13px;margin:0 0 20px;">Here is everything you need to share your book on social media — just copy, paste, and celebrate.</p>
+          
+          ${d.instagram_caption ? `<div style="background:#fdf6ff;border-radius:8px;padding:16px 18px;margin-bottom:14px;">
+            <p style="color:#9b7eb8;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;">📸 Instagram Caption</p>
+            <p style="color:#2B2433;font-size:13px;line-height:1.7;margin:0 0 8px;">${d.instagram_caption.replace(/\n/g, "<br/>")}</p>
+            <p style="color:#9b7eb8;font-size:12px;margin:0;">${d.hashtags || ""}</p>
+          </div>` : ""}
+
+          ${d.facebook_post ? `<div style="background:#f4f0ff;border-radius:8px;padding:16px 18px;margin-bottom:14px;">
+            <p style="color:#9b7eb8;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;">👥 Facebook Post</p>
+            <p style="color:#2B2433;font-size:13px;line-height:1.7;margin:0;">${d.facebook_post.replace(/\n/g, "<br/>")}</p>
+          </div>` : ""}
+
+          ${d.tiktok_hook ? `<div style="background:#fff0f8;border-radius:8px;padding:16px 18px;margin-bottom:14px;">
+            <p style="color:#9b7eb8;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 8px;">🎵 TikTok Opening Line</p>
+            <p style="color:#2B2433;font-size:14px;font-weight:bold;margin:0;">"${d.tiktok_hook}"</p>
+          </div>` : ""}
+
+          ${d.hashtags ? `<div style="background:#f8f4ff;border-radius:8px;padding:14px 18px;margin-bottom:14px;">
+            <p style="color:#9b7eb8;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px;">🏷 Hashtags</p>
+            <p style="color:#9b7eb8;font-size:13px;line-height:1.6;margin:0;">${d.hashtags}</p>
+          </div>` : ""}
+
+          <div style="background:#e8f5ee;border-radius:8px;padding:14px 18px;">
+            <p style="color:#4A9B6F;font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 6px;">🔗 Your Book Link (for all posts)</p>
+            <p style="color:#2B2433;font-size:13px;font-weight:bold;margin:0;">${saleLink}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="background:#2A1F45;padding:24px 32px;text-align:center;">
+        <p style="color:#C4A8D8;font-size:13px;margin:0 0 6px;">Little Amour Books</p>
+        <p style="color:#7a6a8a;font-size:11px;margin:0;">littleamour.com · hello@littleamour.com</p>
+      </div>
+    </div>`;
+
+    try {
+      const r = await fetch("/api/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: d.author_email, subject: d.subject, html }),
+      });
+      if (r.ok) {
+        await supabase.from("launch_emails").update({ status: "sent", sent_at: new Date().toISOString() }).eq("id", d.id);
+        load();
+        setOpen(null);
+        flash("✓ Celebration email sent to " + d.author_name);
+      } else {
+        flash("Failed to send — check Resend API key.");
+      }
+    } catch(e) { flash("Error: " + e.message); }
+    setSaving(null);
+  };
+
+  const P2 = { gold: "#E2A857", mauve: "#9b7eb8", green: "#4A9B6F", red: "#C0392B", ink: "#131A30", cream: "#FAF4EB", muted: "#8a7a9a", card: "#1a2235", border: "#2a2f45" };
+
+  const visible = filter === "all" ? drafts : drafts.filter(d => d.status === filter);
+  const draftCount = drafts.filter(d => d.status === "draft").length;
+
+  if (loading) return <div style={{ padding: 40, color: P2.muted }}>Loading…</div>;
+
+  // Detail view
+  if (open) {
+    const d = drafts.find(x => x.id === open);
+    if (!d) return null;
+    const Field = ({ label, field, multi }) => (
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+          <label style={{ color: P2.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8 }}>{label}</label>
+          <button onClick={() => regenerateField(d, field)} disabled={!!regen}
+            style={{ background: "transparent", border: `1px solid ${P2.border}`, color: P2.mauve, borderRadius: 6, padding: "3px 10px", fontSize: 11, cursor: "pointer", opacity: regen ? 0.5 : 1 }}>
+            {regen === field ? "✨ writing…" : "✨ Regenerate"}
+          </button>
+        </div>
+        {multi
+          ? <textarea value={d[field] || ""} onChange={e => update(d.id, { [field]: e.target.value })} rows={4}
+              style={{ width: "100%", background: "#0E1525", border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 13, outline: "none", boxSizing: "border-box", lineHeight: 1.65, resize: "vertical", fontFamily: "Georgia,serif" }} />
+          : <input value={d[field] || ""} onChange={e => update(d.id, { [field]: e.target.value })}
+              style={{ width: "100%", background: "#0E1525", border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 13, outline: "none" }} />
+        }
+      </div>
+    );
+
+    return (
+      <div style={{ padding: "28px 32px", maxWidth: 780 }}>
+        <button onClick={() => setOpen(null)} style={{ background: "transparent", border: "none", color: P2.muted, cursor: "pointer", fontSize: 13, marginBottom: 18 }}>← Back to all drafts</button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+          <div>
+            <h3 style={{ color: P2.cream, fontFamily: "Georgia,serif", margin: "0 0 4px" }}>Launch Email — {d.author_name}</h3>
+            <p style={{ color: P2.muted, fontSize: 14, margin: 0 }}>"{d.book_title}" · {d.author_email}</p>
+          </div>
+          <span style={{ background: d.status === "sent" ? P2.green : P2.gold, color: d.status === "sent" ? "#fff" : P2.ink, borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 700 }}>
+            {d.status === "sent" ? "✓ Sent" : "Draft — awaiting approval"}
+          </span>
+        </div>
+
+        {d.status === "sent" && <div style={{ background: "#1a3a2a", border: `1px solid ${P2.green}`, borderRadius: 8, padding: "12px 16px", marginBottom: 20 }}><p style={{ color: P2.green, margin: 0, fontSize: 13 }}>✓ Sent to {d.author_email} on {new Date(d.sent_at).toLocaleDateString()}</p></div>}
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ color: P2.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, display: "block", marginBottom: 5 }}>Email Subject Line</label>
+          <input value={d.subject || ""} onChange={e => update(d.id, { subject: e.target.value })}
+            style={{ width: "100%", background: "#0E1525", border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+        </div>
+
+        {d.cover_image_url && (
+          <div style={{ marginBottom: 18 }}>
+            <p style={{ color: P2.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Book Image</p>
+            <img src={d.cover_image_url} alt="Book cover" style={{ height: 120, borderRadius: 8, objectFit: "cover" }} onError={() => {}} />
+          </div>
+        )}
+
+        <Field label="Celebration Message (email body)" field="celebration_message" multi />
+        <Field label="Instagram Caption" field="instagram_caption" multi />
+        <Field label="Facebook Post" field="facebook_post" multi />
+        <Field label="TikTok Opening Hook" field="tiktok_hook" />
+        <Field label="Hashtags" field="hashtags" multi />
+
+        {d.image_prompt && (
+          <div style={{ background: P2.card, border: `1px solid ${P2.border}`, borderRadius: 8, padding: "12px 16px", marginBottom: 18 }}>
+            <p style={{ color: P2.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>AI Image Prompt (for social media image)</p>
+            <p style={{ color: P2.cream, fontSize: 13, margin: 0, fontStyle: "italic" }}>{d.image_prompt}</p>
+            <p style={{ color: P2.muted, fontSize: 11, margin: "8px 0 0" }}>Use this prompt in the studio image generator to create a celebration graphic for the author.</p>
+          </div>
+        )}
+
+        {d.status !== "sent" && (
+          <div style={{ display: "flex", gap: 12, marginTop: 24, paddingTop: 18, borderTop: `1px solid ${P2.border}` }}>
+            <button onClick={() => saveEdits(d)} disabled={!!saving}
+              style={{ background: P2.card, color: P2.cream, border: `1px solid ${P2.border}`, borderRadius: 8, padding: "9px 20px", fontSize: 13, cursor: "pointer" }}>
+              {saving === d.id ? "Saving…" : "Save Draft"}
+            </button>
+            <button onClick={() => sendEmail(d)} disabled={!!saving}
+              style={{ background: P2.gold, color: P2.ink, border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 700, fontSize: 13, cursor: "pointer", opacity: saving ? 0.6 : 1 }}>
+              {saving === d.id ? "Sending…" : "✓ Approve & Send to " + d.author_name}
+            </button>
+          </div>
+        )}
+
+        {toast && <div style={{ marginTop: 14, padding: "10px 16px", background: P2.green, color: "#fff", borderRadius: 8, fontSize: 13 }}>{toast}</div>}
+      </div>
+    );
+  }
+
+  // List view
+  return (
+    <div style={{ padding: "28px 32px", maxWidth: 760 }}>
+      <h2 style={{ color: P2.cream, fontFamily: "Georgia,serif", marginBottom: 4 }}>Launch Emails</h2>
+      <p style={{ color: P2.muted, fontSize: 14, marginBottom: 20 }}>Amora drafts a celebration email when a book is approved. Review, edit, then approve to send.</p>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+        {["draft","sent","all"].map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            style={{ padding: "5px 14px", borderRadius: 20, border: `1.5px solid ${filter===f ? P2.mauve : P2.border}`, background: filter===f ? "#2a1f45" : "transparent", color: filter===f ? P2.cream : P2.muted, fontSize: 13, cursor: "pointer" }}>
+            {f === "draft" ? `Awaiting approval${draftCount > 0 ? ` (${draftCount})` : ""}` : f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {visible.length === 0 && <p style={{ color: P2.muted, fontSize: 14 }}>No {filter === "all" ? "" : filter} launch emails yet. They appear automatically when a book is approved in Pending Books.</p>}
+
+      {visible.map(d => (
+        <div key={d.id} style={{ background: P2.card, border: `1px solid ${d.status === "draft" ? P2.gold + "88" : P2.border}`, borderRadius: 10, padding: "16px 20px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div>
+            <p style={{ color: P2.cream, fontWeight: 700, margin: "0 0 3px" }}>{d.author_name}</p>
+            <p style={{ color: P2.muted, fontSize: 13, margin: "0 0 3px" }}>"{d.book_title}"</p>
+            <p style={{ color: P2.muted, fontSize: 12, margin: 0 }}>{d.author_email} · {new Date(d.created_at).toLocaleDateString()}</p>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ background: d.status === "sent" ? P2.green : P2.gold, color: d.status === "sent" ? "#fff" : P2.ink, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>
+              {d.status === "sent" ? "✓ Sent" : "Draft"}
+            </span>
+            <button onClick={() => setOpen(d.id)}
+              style={{ background: P2.mauve, color: "#fff", border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+              {d.status === "draft" ? "Review & Send →" : "View →"}
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {toast && <div style={{ marginTop: 16, padding: "10px 16px", background: P2.green, color: "#fff", borderRadius: 8, fontSize: 13 }}>{toast}</div>}
+    </div>
+  );
+}
 
 /* ============================================================
    AUTHOR ACCOUNTS — create & manage author logins
@@ -1672,6 +1960,61 @@ function PendingBooks() {
       reviewed_at: new Date().toISOString(),
     }).eq("id", row.id);
 
+    // If approved: create a launch email draft for admin review
+    if (status === "approved") {
+      try {
+        // Ask Amora to draft celebration content
+        const amoraRes = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-6",
+            max_tokens: 900,
+            system: "You are Amora, the warm heart of Little Amour Books. Write in a warm, celebratory, survivor-centered voice. Plain text only — no markdown symbols.",
+            messages: [{ role: "user", content: `A survivor mother just had her children's book published. Create a social media launch package for her.
+
+Book title: "${row.title || "her book"}"
+Author name: ${row.author_name || "the author"}
+Synopsis: ${row.synopsis || "a gentle children's book about healing"}
+Theme: ${row.theme || "healing and hope"}
+
+Return ONLY valid JSON with these keys:
+{
+  "celebrationMessage": "A warm personal message from Little Amour Books to the author — 3 sentences. Celebrate her courage and achievement. Mention the book title. End with how proud we are.",
+  "instagramCaption": "Ready-to-post Instagram caption for the author to share her own book launch. 3-4 sentences. Warm, proud, inviting. Ends with a call to action to buy the book.",
+  "facebookPost": "Longer Facebook post — 4-5 sentences. Tells a little more of the story behind the book. Warm and personal.",
+  "tiktokHook": "One punchy opening line for a TikTok video about the book — makes people stop scrolling.",
+  "hashtags": "15 relevant hashtags as a single string with spaces between them — mix of children's book, healing, survivor, parenting hashtags",
+  "emailSubjectLine": "A warm subject line for the author celebration email",
+  "imagePrompt": "A short prompt to generate a celebration social media image — describe a warm, joyful scene featuring the book title and a gentle celebratory visual. No faces. Soft colours."
+}` }],
+          }),
+        });
+        const amoraJson = await amoraRes.json();
+        const amoraText = amoraJson.content?.[0]?.text || "{}";
+        let draft = {};
+        try {
+          draft = JSON.parse(amoraText.slice(amoraText.indexOf("{"), amoraText.lastIndexOf("}") + 1));
+        } catch(e) { draft = {}; }
+
+        await supabase.from("launch_emails").insert({
+          book_submission_id: row.id,
+          author_name: row.author_name,
+          author_email: row.author_email,
+          book_title: row.title,
+          status: "draft",
+          subject: draft.emailSubjectLine || `Congratulations ${row.author_name} — your book is published! 🌙`,
+          celebration_message: draft.celebrationMessage || "",
+          instagram_caption: draft.instagramCaption || "",
+          facebook_post: draft.facebookPost || "",
+          tiktok_hook: draft.tiktokHook || "",
+          hashtags: draft.hashtags || "",
+          image_prompt: draft.imagePrompt || "",
+          cover_image_url: row.manuscript_url || "",
+        });
+      } catch(e) { /* non-fatal — launch email can be created manually */ }
+    }
+
     // Send notification email via serverless function
     try {
       const subject = status === "approved"
@@ -1843,8 +2186,9 @@ export default function AdminDashboard({ onBack }) {
       supabase.from("author_applications").select("*", { count: "exact", head: true }).eq("status", "new"),
       supabase.from("proposed_categories").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("book_submissions").select("*", { count: "exact", head: true }).eq("status", "pending"),
-    ]).then(([apps, themes, bsub]) => {
-      setAlerts({ applications: apps.count || 0, themes: themes.count || 0, pendingbooks: bsub.count || 0 });
+      supabase.from("launch_emails").select("*", { count: "exact", head: true }).eq("status", "draft"),
+    ]).then(([apps, themes, bsub, launch]) => {
+      setAlerts({ applications: apps.count || 0, themes: themes.count || 0, pendingbooks: bsub.count || 0, lachemails: launch.count || 0 });
     });
   }, []);
 
@@ -1860,6 +2204,7 @@ export default function AdminDashboard({ onBack }) {
       case "chatlogs":     return <ChatLogs />;
       case "pendingbooks":  return <PendingBooks />;
       case "newsletter":    return <NewsletterDraft />;
+      case "lachemails":    return <LaunchEmails />;
       case "authoraccounts": return <AuthorAccounts />;
       case "sponsorcrm":   return <SponsorCRM />;
       case "goal":         return <GoalDashboard />;
