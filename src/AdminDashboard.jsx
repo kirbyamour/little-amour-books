@@ -292,6 +292,11 @@ function BooksManager() {
     else await supabase.from("books_pricing").insert(rest);
     setSaving(false); setEditing(null); load();
   }
+  async function deleteBook(row) {
+    if (!window.confirm(`Delete "${row.title}" from the books database? This cannot be undone.`)) return;
+    await supabase.from("books_pricing").delete().eq("id", row.id);
+    load();
+  }
 
   return (
     <div>
@@ -309,7 +314,7 @@ function BooksManager() {
                 <td>{r.authors?.name || <span style={{color:P.inkSoft}}>House</span>}</td>
                 <td><Chip status={r.ownership_type} /></td>
                 <td style={{fontSize:12,color:P.inkSoft}}>{rules.find(x => x.id === r.royalty_rule_id)?.name || "—"}</td>
-                <td><button className="a-link" onClick={() => setEditing({...r})}>Edit</button></td>
+                <td style={{display:"flex",gap:8}}><button className="a-link" onClick={() => setEditing({...r})}>Edit</button><button className="a-link" style={{color:"#C0392B"}} onClick={() => deleteBook(r)}>Delete</button></td>
               </tr>
             ))}
           </tbody>
@@ -608,7 +613,7 @@ function SponsorCRM() {
                 <td>{r.amount ? fmt(r.amount) : "—"}</td>
                 <td><span className="cat-badge" style={{background: STATUS_COLORS[r.status] + "22", color: STATUS_COLORS[r.status]}}>{r.status}</span></td>
                 <td style={{fontSize:12,color: r.renewal_date && new Date(r.renewal_date) < new Date(Date.now() + 30*86400000) ? P.red : P.inkSoft}}>{r.renewal_date ? new Date(r.renewal_date).toLocaleDateString("en-AU",{day:"numeric",month:"short",year:"numeric"}) : "—"}</td>
-                <td><button className="a-link" onClick={() => setEditing({...r})}>Edit</button></td>
+                <td style={{display:"flex",gap:8}}><button className="a-link" onClick={() => setEditing({...r})}>Edit</button><button className="a-link" style={{color:"#C0392B"}} onClick={() => deleteBook(r)}>Delete</button></td>
               </tr>
             ))}
           </tbody>
@@ -807,7 +812,7 @@ function PricingSettings() {
               <td>{fmt(r.max_price)}</td>
               <td>{r.is_pay_what_you_can ? "✓" : ""}</td>
               <td>{r.is_active ? "✓" : "—"}</td>
-              <td><button className="a-link" onClick={() => setEditing({...r})}>Edit</button></td>
+              <td style={{display:"flex",gap:8}}><button className="a-link" onClick={() => setEditing({...r})}>Edit</button><button className="a-link" style={{color:"#C0392B"}} onClick={() => deleteBook(r)}>Delete</button></td>
             </tr>
           ))}
         </tbody>
@@ -870,7 +875,7 @@ function CostAssumptions() {
               <td>{pct(r.platform_fee_pct)}</td>
               <td>{fmt(r.ai_token_reserve)}</td>
               <td style={{fontSize:11,color:P.inkSoft}}>{r.notes}</td>
-              <td><button className="a-link" onClick={() => setEditing({...r})}>Edit</button></td>
+              <td style={{display:"flex",gap:8}}><button className="a-link" onClick={() => setEditing({...r})}>Edit</button><button className="a-link" style={{color:"#C0392B"}} onClick={() => deleteBook(r)}>Delete</button></td>
             </tr>
           ))}
         </tbody>
@@ -933,7 +938,7 @@ function RoyaltyRules() {
               <td>{pct(r.platform_pct)}</td>
               <td>{r.deduct_production_costs ? "✓" : "—"}</td>
               <td>{r.is_default ? "✓" : ""}</td>
-              <td><button className="a-link" onClick={() => setEditing({...r})}>Edit</button></td>
+              <td style={{display:"flex",gap:8}}><button className="a-link" onClick={() => setEditing({...r})}>Edit</button><button className="a-link" style={{color:"#C0392B"}} onClick={() => deleteBook(r)}>Delete</button></td>
             </tr>
           ))}
         </tbody>
@@ -1005,7 +1010,7 @@ function ProductionCosts() {
               <td>{fmt(r.amount)}</td>
               <td><span className="cat-badge" style={{background: (STATUS_MAP[r.status]||P.inkSoft)+"22", color: STATUS_MAP[r.status]||P.inkSoft}}>{r.status?.replace(/_/g," ")}</span></td>
               <td style={{fontSize:11,color:P.inkSoft}}>{r.notes}</td>
-              <td><button className="a-link" onClick={() => setEditing({...r})}>Edit</button></td>
+              <td style={{display:"flex",gap:8}}><button className="a-link" onClick={() => setEditing({...r})}>Edit</button><button className="a-link" style={{color:"#C0392B"}} onClick={() => deleteBook(r)}>Delete</button></td>
             </tr>
           ))}
         </tbody>
@@ -1079,7 +1084,7 @@ function SponsorFunds() {
               <td>{fmt(r.amount_used)}</td>
               <td style={{color:P.green,fontWeight:600}}>{fmt(r.amount_received - r.amount_used)}</td>
               <td style={{fontSize:11,color:P.inkSoft}}>{r.notes}</td>
-              <td><button className="a-link" onClick={() => setEditing({...r})}>Edit</button></td>
+              <td style={{display:"flex",gap:8}}><button className="a-link" onClick={() => setEditing({...r})}>Edit</button><button className="a-link" style={{color:"#C0392B"}} onClick={() => deleteBook(r)}>Delete</button></td>
             </tr>
           ))}
         </tbody>
@@ -1951,6 +1956,12 @@ function PendingBooks() {
     setLoading(false);
   }
 
+  async function deleteSubmission(row) {
+    if (!window.confirm(`Permanently delete "${row.title || "this submission"}" by ${row.author_name}? This cannot be undone.`)) return;
+    await supabase.from("book_submissions").delete().eq("id", row.id);
+    load();
+  }
+
   async function decide(row, status) {
     setSaving(row.id);
     const note = feedback[row.id] || "";
@@ -2109,6 +2120,7 @@ Return ONLY valid JSON with these keys:
                 style={{width:"100%",marginBottom:10,resize:"vertical"}}
               />
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button className="a-btn" style={{background:"#2a1215",color:"#C0392B",border:"1px solid #C0392B"}} onClick={() => deleteSubmission(r)}>🗑 Delete</button>
                 <button className="a-btn" style={{background:P.green}} disabled={saving===r.id} onClick={() => decide(r, "approved")}>
                   {saving===r.id ? "Saving…" : "✓ Accept & publish"}
                 </button>
