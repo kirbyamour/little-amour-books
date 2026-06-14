@@ -367,7 +367,7 @@ function HomePage({ go }) {
               <p className="pull">So we built a press that pays survivors to tell the truth gently.</p>
             </div>
           </Reveal>
-          <Reveal delay={150}><KitchenScene /></Reveal>
+          <Reveal delay={150}><img src="/hero-reading.png" className="hero-reading-img" alt="A mother and child reading together under the moon" /></Reveal>
         </div>
       </section>
 
@@ -2153,6 +2153,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .dusk h2 { color: ${P.cream}; margin-bottom: 18px; }
 .why-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 44px; align-items: center; }
 .kitchen { width: 100%; max-width: 340px; display: block; margin: 0 auto; filter: drop-shadow(0 14px 30px rgba(0,0,0,.3)); }
+.hero-reading-img { width: 100%; max-width: 380px; display: block; margin: 0 auto; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,.4); }
 .pull { font-family: var(--display); font-style: italic; font-size: clamp(21px, 3vw, 28px); color: ${P.rose}; margin-top: 22px; line-height: 1.35; }
 
 /* dawn */
