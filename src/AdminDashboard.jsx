@@ -1327,6 +1327,188 @@ const ADMIN_CSS = `
 /* ============================================================
    NAV CONFIG
    ============================================================ */
+
+/* ============================================================
+   AUTHOR PAYOUTS MANAGER
+   ============================================================ */
+function AuthorPayoutsManager() {
+  const [authors, setAuthors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({});
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("author_payout_status")
+      .select("*")
+      .order("created_at", { ascending: false });
+    setAuthors(data || []);
+    setLoading(false);
+  }
+
+  const open = (a) => { setSelected(a); setForm({ ...a }); };
+
+  const save = async () => {
+    if (!selected) return;
+    setSaving(true);
+    await supabase.from("author_payout_status").upsert({ ...form, updated_at: new Date().toISOString() }).eq("id", selected.id);
+    setSaving(false);
+    await load();
+    setSelected(null);
+  };
+
+  const field = (k, label, type = "text", opts = null) => (
+    <div className="ap-field" key={k}>
+      <label className="ap-label">{label}</label>
+      {type === "bool" ? (
+        <select className="ap-input" value={form[k] === true ? "yes" : form[k] === false ? "no" : ""}
+          onChange={e => setForm(f => ({ ...f, [k]: e.target.value === "yes" }))} >
+          <option value="">Not set</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      ) : type === "textarea" ? (
+        <textarea className="ap-input" rows={3} value={form[k] || ""} onChange={e => setForm(f => ({ ...f, [k]: e.target.value }))} />
+      ) : (
+        <input type={type} className="ap-input" value={form[k] || ""} onChange={e => setForm(f => ({ ...f, [k]: e.target.value }))} />
+      )}
+    </div>
+  );
+
+  const STATUS_DOT = (val) => {
+    if (val === true)  return <span style={{ color: "#27ae60", fontWeight: 700 }}>✓ Yes</span>;
+    if (val === false) return <span style={{ color: "#c0392b", fontWeight: 700 }}>✗ No</span>;
+    return <span style={{ color: "#999" }}>—</span>;
+  };
+
+  return (
+    <div>
+      <style>{AP_CSS}</style>
+      <div className="ap-header">
+        <h2 className="ap-h2">Author Payout Accounts</h2>
+        <p className="ap-sub">Manage Stripe connection status, verification, and payout holds for each author.</p>
+      </div>
+
+      <div className="ap-notice">
+        <strong>Policy reminder:</strong> Authors are responsible for connecting, verifying, and maintaining their own Stripe account. Earnings may be held if payout setup is incomplete. Books remain on sale regardless of payout status. Held earnings do not accrue interest.
+      </div>
+
+      {loading ? <p className="ap-hint">Loading…</p> : !authors.length ? (
+        <div className="ap-empty">
+          <p>No author payout records yet.</p>
+          <p className="ap-hint">Records are created when an author connects their Stripe account during onboarding.</p>
+        </div>
+      ) : (
+        <table className="ap-table">
+          <thead>
+            <tr>
+              <th>Author</th>
+              <th>Stripe</th>
+              <th>Verified</th>
+              <th>Payout Active</th>
+              <th>Tax Info</th>
+              <th>On Hold</th>
+              <th>Held $</th>
+              <th>Last Payout</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {authors.map(a => (
+              <tr key={a.id} className={a.payout_hold ? "ap-row-hold" : ""}>
+                <td className="ap-author-name">{a.author_name || a.author_email}</td>
+                <td>{STATUS_DOT(a.stripe_connected)}</td>
+                <td>
+                  <span className={"ap-verify-chip ap-verify-" + (a.stripe_verification_status || "none")}>
+                    {a.stripe_verification_status || "—"}
+                  </span>
+                </td>
+                <td>{STATUS_DOT(a.payout_method_active)}</td>
+                <td>{STATUS_DOT(a.tax_info_complete)}</td>
+                <td>{a.payout_hold ? <span style={{ color: "#e67e22", fontWeight: 700 }}>⚠ Hold</span> : <span style={{ color: "#aaa" }}>No</span>}</td>
+                <td>{a.earnings_held_amount ? <span style={{ color: "#e67e22", fontWeight: 700 }}>${Number(a.earnings_held_amount).toFixed(2)}</span> : "—"}</td>
+                <td>{a.last_payout_date ? new Date(a.last_payout_date).toLocaleDateString() : "—"}</td>
+                <td><button className="ap-edit-btn" onClick={() => open(a)}>Edit</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {selected && (
+        <div className="ap-modal-overlay" onClick={() => setSelected(null)}>
+          <div className="ap-modal" onClick={e => e.stopPropagation()}>
+            <div className="ap-modal-header">
+              <h3 className="ap-modal-title">Payout Account — {selected.author_name || selected.author_email}</h3>
+              <button className="ap-modal-close" onClick={() => setSelected(null)}>✕</button>
+            </div>
+            <div className="ap-modal-body">
+              <div className="ap-section-h">Stripe Status</div>
+              {field("stripe_connected", "Stripe Connected", "bool")}
+              {field("stripe_verification_status", "Stripe Verification Status")}
+              {field("payout_method_active", "Payout Method Active", "bool")}
+              {field("tax_info_complete", "Tax Info Complete", "bool")}
+
+              <div className="ap-section-h">Hold & Earnings</div>
+              {field("payout_hold", "Payout Hold Active", "bool")}
+              {field("earnings_held_amount", "Earnings Held ($)", "number")}
+              {field("failed_payout_reason", "Failed Payout Reason")}
+              {field("author_notified_date", "Author Notified Date", "date")}
+              {field("last_payout_date", "Last Payout Date", "date")}
+
+              <div className="ap-section-h">Notes</div>
+              {field("payout_notes", "Payout Notes", "textarea")}
+            </div>
+            <div className="ap-modal-footer">
+              <button className="ap-cancel-btn" onClick={() => setSelected(null)}>Cancel</button>
+              <button className="ap-save-btn" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const AP_CSS = `
+.ap-header { margin-bottom: 18px; }
+.ap-h2 { font-size: 20px; font-weight: 700; color: #131A30; margin-bottom: 6px; }
+.ap-sub { font-size: 13.5px; color: #888; }
+.ap-notice { background: #FFF6E8; border: 1.5px solid #F0D09A; border-radius: 12px; padding: 13px 16px; font-size: 13.5px; line-height: 1.65; color: #2B2433; margin-bottom: 20px; }
+.ap-hint { font-size: 13px; color: #aaa; line-height: 1.6; }
+.ap-empty { text-align: center; padding: 36px; color: #888; }
+.ap-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.ap-table th { text-align: left; padding: 9px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: #888; border-bottom: 2px solid #ECD9C5; font-weight: 700; white-space: nowrap; }
+.ap-table td { padding: 10px 12px; border-bottom: 1px solid #ECD9C5; vertical-align: middle; }
+.ap-row-hold td { background: #FFF6E8; }
+.ap-author-name { font-weight: 700; color: #131A30; }
+.ap-verify-chip { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.ap-verify-verified { background: #DFF0E5; color: #27ae60; }
+.ap-verify-pending { background: #FFF6E8; color: #e67e22; }
+.ap-verify-failed { background: #FDECEA; color: #c0392b; }
+.ap-verify-none { background: #F0ECEA; color: #aaa; }
+.ap-edit-btn { background: #131A30; color: #fff; border: none; border-radius: 999px; padding: 4px 14px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.ap-field { margin-bottom: 12px; }
+.ap-label { font-size: 12px; font-weight: 700; color: #33304F; display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .08em; }
+.ap-input { width: 100%; border: 1.5px solid #DDD0C8; border-radius: 8px; padding: 8px 12px; font-size: 14px; font-family: inherit; background: #fff; box-sizing: border-box; }
+.ap-section-h { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .13em; color: #6E5572; margin: 16px 0 10px; padding-top: 14px; border-top: 1px solid #ECD9C5; }
+.ap-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.ap-modal { background: #fff; border-radius: 18px; width: 100%; max-width: 520px; max-height: 85vh; display: flex; flex-direction: column; }
+.ap-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 14px; border-bottom: 1px solid #ECD9C5; }
+.ap-modal-title { font-size: 16px; font-weight: 700; color: #131A30; }
+.ap-modal-close { background: none; border: none; font-size: 18px; color: #aaa; cursor: pointer; padding: 0; }
+.ap-modal-body { flex: 1; overflow-y: auto; padding: 16px 24px; }
+.ap-modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding: 14px 24px; border-top: 1px solid #ECD9C5; }
+.ap-cancel-btn { background: none; border: 1.5px solid #DDD0C8; border-radius: 999px; padding: 9px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.ap-save-btn { background: #131A30; color: #fff; border: none; border-radius: 999px; padding: 9px 24px; font-size: 14px; font-weight: 700; cursor: pointer; }
+.ap-save-btn:disabled { opacity: .5; cursor: default; }
+`;
+
+
 const NAV_GROUPS = [
   { label: "Business", items: [
     { id: "overview", label: "Overview" },
@@ -1347,6 +1529,11 @@ const NAV_GROUPS = [
     { id: "newsletter", label: "Newsletter" },
     { id: "lachemails", label: "Launch Emails", alertKey: "lachemails" },
     { id: "authoraccounts", label: "Author Accounts" },
+    { id: "authorpayouts", label: "Author Payouts", alertKey: "payoutholds" },
+  ]},
+  { label: "Merch", items: [
+    { id: "pod", label: "POD Products", alertKey: "podqueue" },
+    { id: "seo", label: "SEO" },
   ]},
   { label: "Growth", items: [
     { id: "sponsorcrm", label: "Sponsors" },
@@ -2570,7 +2757,6 @@ export default function AdminDashboard({ onBack }) {
   const renderTab = () => {
     switch (tab) {
       case "overview":     return <Overview onNavigate={setTab} />;
-      case "orders":       return <Orders />;
       case "subscribers":  return <EmailSubscribers />;
       case "analytics":    return <Analytics />;
       case "books":        return <BooksManager />;
@@ -2591,6 +2777,9 @@ export default function AdminDashboard({ onBack }) {
       case "royalties":    return <RoyaltyRules />;
       case "production":   return <ProductionCosts />;
       case "sponsorfunds": return <SponsorFunds />;
+      case "authorpayouts": return <AuthorPayoutsManager />;
+      case "pod":           return <PODAdminDashboard />;
+      case "seo":           return <SEODashboard />;
       default:             return <Overview onNavigate={setTab} />;
     }
   };
