@@ -1320,6 +1320,7 @@ const NAV_GROUPS = [
     { id: "themes", label: "Themes", alertKey: "themes" },
     { id: "chatlogs", label: "Chat Logs" },
     { id: "pendingbooks", label: "Pending Books", alertKey: "pendingbooks" },
+    { id: "newsletter", label: "Newsletter" },
   ]},
   { label: "Growth", items: [
     { id: "sponsorcrm", label: "Sponsors" },
@@ -1338,6 +1339,162 @@ const NAV_GROUPS = [
 /* ============================================================
    ROOT
    ============================================================ */
+
+
+/* ============================================================
+   NEWSLETTER — Amora drafts email newsletters for subscribers
+   ============================================================ */
+function NewsletterDraft() {
+  const [books, setBooks] = useState([]);
+  const [subs, setSubs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [drafting, setDrafting] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [subject, setSubject] = useState("");
+  const [sending, setSending] = useState(false);
+  const [toast, setToast] = useState("");
+  const [featuredIdx, setFeaturedIdx] = useState(0);
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from("book_submissions").select("*").eq("status","approved").order("reviewed_at",{ascending:false}),
+      supabase.from("email_subscribers").select("email, name").eq("active", true),
+    ]).then(([b, s]) => {
+      setBooks(b.data || []);
+      setSubs(s.data || []);
+      setFeaturedIdx(Math.floor(Math.random() * Math.max(1, (b.data||[]).length)));
+      setLoading(false);
+    });
+  }, []);
+
+  async function generateDraft() {
+    setDrafting(true);
+    setDraft("");
+    const featured = books[featuredIdx] || null;
+    const recentTitles = books.slice(0, 5).map(b => `"${b.title}" by ${b.author_name}`).join(", ");
+
+    const prompt = `You are Amora, the warm heart behind Little Amour Books.
+Draft a short, beautiful email newsletter for our community of survivor mothers and their children.
+
+${featured ? `This edition features the author: ${featured.author_name}, whose book "${featured.title}" is about: ${featured.synopsis || "a child's journey through big feelings"}. Theme: ${featured.theme || "healing & hope"}.` : ""}
+
+${recentTitles ? `Also mention these recently published books: ${recentTitles}.` : ""}
+
+Newsletter requirements:
+- Warm, personal opening from Little Amour Books
+- Spotlight the featured author with a sentence about their story (warm, not clinical)
+- Briefly mention new books in the catalogue
+- A short closing thought that feels like a hug
+- Sign off as: With love, The Little Amour Team 🌙
+- Plain text only — no markdown, no bullet symbols, just paragraphs
+- Keep it under 300 words, feel every word`;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 700,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const json = await res.json();
+      const text = json.content?.[0]?.text || "";
+      setDraft(text);
+      setSubject(`A little love letter from us 🌙${featured ? ` — featuring ${featured.author_name}` : ""}`);
+    } catch(e) {
+      setDraft("Something went wrong generating the draft. Please try again.");
+    }
+    setDrafting(false);
+  }
+
+  async function sendToAll() {
+    if (!draft.trim() || !subject.trim()) return;
+    if (!window.confirm(`Send this newsletter to ${subs.length} subscriber${subs.length !== 1 ? "s" : ""}?`)) return;
+    setSending(true);
+    let ok = 0, fail = 0;
+    for (const sub of subs) {
+      const html = `<div style="font-family:Georgia,serif;max-width:560px;margin:0 auto;color:#2a1f35;line-height:1.75;font-size:15px;">
+        ${draft.split("\n\n").map(p => p.trim() ? `<p>${p.replace(/\n/g,"<br/>")}</p>` : "").join("")}
+        <hr style="border:none;border-top:1px solid #e8ddf0;margin:28px 0"/>
+        <p style="font-size:12px;color:#999;">You're receiving this because you signed up at littleamour.com.<br/>
+        <a href="https://littleamour.com" style="color:#9b7eb8;">Visit our bookstore</a></p>
+      </div>`;
+      try {
+        const r = await fetch("/api/notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to: sub.email, subject, html }),
+        });
+        if (r.ok) ok++; else fail++;
+      } catch { fail++; }
+    }
+    setSending(false);
+    setToast(`✓ Sent to ${ok} subscriber${ok !== 1?"s":""}${fail ? ` (${fail} failed)` : ""}`);
+    setTimeout(() => setToast(""), 5000);
+  }
+
+  const P2 = { gold: "#E2A857", mauve: "#9b7eb8", green: "#4A9B6F", ink: "#131A30", cream: "#FAF4EB", muted: "#8a7a9a", card: "#1a2235", border: "#2a2f45" };
+
+  if (loading) return <div style={{padding:40,color:P2.muted,textAlign:"center"}}>Loading...</div>;
+
+  return (
+    <div style={{padding:"28px 32px",maxWidth:800}}>
+      <h2 style={{color:P2.cream,fontFamily:"Georgia,serif",marginBottom:4}}>Newsletter Drafts</h2>
+      <p style={{color:P2.muted,fontSize:14,marginBottom:28}}>{subs.length} active subscriber{subs.length!==1?"s":""} · {books.length} published book{books.length!==1?"s":""}</p>
+
+      {books.length > 0 && (
+        <div style={{background:P2.card,border:`1px solid ${P2.border}`,borderRadius:12,padding:"18px 20px",marginBottom:20}}>
+          <p style={{color:P2.muted,fontSize:12,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>Featured Author This Edition</p>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
+            {books.map((b,i) => (
+              <button key={b.id} onClick={() => setFeaturedIdx(i)}
+                style={{padding:"6px 14px",borderRadius:20,border:`1.5px solid ${i===featuredIdx?P2.mauve:P2.border}`,background:i===featuredIdx?"#2a1f45":"transparent",color:i===featuredIdx?P2.cream:P2.muted,fontSize:13,cursor:"pointer"}}>
+                {b.author_name}
+              </button>
+            ))}
+          </div>
+          {books[featuredIdx] && (
+            <p style={{color:P2.cream,fontSize:13,marginTop:12,opacity:0.8}}>
+              <strong>"{books[featuredIdx].title}"</strong> — {books[featuredIdx].synopsis?.slice(0,100) || "No synopsis yet"}{(books[featuredIdx].synopsis||"").length > 100 ? "…" : ""}
+            </p>
+          )}
+        </div>
+      )}
+
+      <button onClick={generateDraft} disabled={drafting}
+        style={{background:P2.mauve,color:"#fff",border:"none",borderRadius:8,padding:"10px 24px",fontWeight:700,fontSize:14,cursor:drafting?"not-allowed":"pointer",marginBottom:24,opacity:drafting?0.7:1}}>
+        {drafting ? "Amora is writing… 🌙" : draft ? "✨ Regenerate Draft" : "✨ Draft Newsletter with Amora"}
+      </button>
+
+      {draft && (
+        <div style={{marginTop:8}}>
+          <div style={{marginBottom:12}}>
+            <p style={{color:P2.muted,fontSize:12,marginBottom:4,textTransform:"uppercase",letterSpacing:1}}>Subject Line</p>
+            <input value={subject} onChange={e => setSubject(e.target.value)}
+              style={{width:"100%",background:P2.card,border:`1px solid ${P2.border}`,borderRadius:8,padding:"8px 12px",color:P2.cream,fontSize:14,outline:"none",boxSizing:"border-box"}} />
+          </div>
+          <p style={{color:P2.muted,fontSize:12,marginBottom:4,textTransform:"uppercase",letterSpacing:1}}>Newsletter Body</p>
+          <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={16}
+            style={{width:"100%",background:P2.card,border:`1px solid ${P2.border}`,borderRadius:8,padding:"14px 16px",color:P2.cream,fontSize:14,lineHeight:1.8,outline:"none",resize:"vertical",boxSizing:"border-box",fontFamily:"Georgia,serif"}} />
+          <div style={{display:"flex",gap:12,marginTop:12,flexWrap:"wrap"}}>
+            <button onClick={() => { navigator.clipboard.writeText(draft); setToast("Copied!"); setTimeout(()=>setToast(""),2000); }}
+              style={{background:P2.card,color:P2.cream,border:`1px solid ${P2.border}`,borderRadius:8,padding:"8px 18px",fontSize:13,cursor:"pointer"}}>
+              Copy Text
+            </button>
+            <button onClick={sendToAll} disabled={sending || subs.length === 0}
+              style={{background:P2.gold,color:P2.ink,border:"none",borderRadius:8,padding:"8px 20px",fontWeight:700,fontSize:13,cursor:sending||subs.length===0?"not-allowed":"pointer",opacity:sending?0.7:1}}>
+              {sending ? "Sending…" : `Send to All ${subs.length} Subscribers`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && <div style={{marginTop:16,padding:"10px 16px",background:P2.green,color:"#fff",borderRadius:8,fontSize:13}}>{toast}</div>}
+    </div>
+  );
+}
 
 /* ============================================================
    PENDING BOOKS — manuscript review + email notifications
@@ -1554,6 +1711,7 @@ export default function AdminDashboard({ onBack }) {
       case "themes":       return <ProposedCategories />;
       case "chatlogs":     return <ChatLogs />;
       case "pendingbooks":  return <PendingBooks />;
+      case "newsletter":    return <NewsletterDraft />;
       case "sponsorcrm":   return <SponsorCRM />;
       case "goal":         return <GoalDashboard />;
       case "simulator":    return <Simulator />;
