@@ -751,69 +751,369 @@ function AuthorPage({ author, go, toast }) {
   );
 }
 
-function WritePage({ go }) {
-  const steps = [
-    { t: "Apply", d: "A short, gentle application. No proof of anything is required — your word is enough, and your story is yours to share at whatever depth you choose." },
-    { t: "Be welcomed", d: "A real conversation about your idea, your goals, and your privacy. Pen names from day one if you want one." },
-    { t: "Create in the AI studio", d: "You bring the lived wisdom; our AI studio brings the skill. It drafts pages with you, illustrates them in the style you choose, and keeps your exact words whenever you want them kept. You don't need to know how to write or draw — truly." },
-    { t: "Editorial care & review", d: "Every book is read closely before publication — for emotional safety for young readers, and to make your story shine. You'll receive warm, specific feedback in your studio dashboard, and nothing is published without your approval and ours." },
-    { t: "Published to Amazon", d: "We format your book, finalize the files, and publish it on Amazon under the Little Amour imprint through our publisher account — paperback and Kindle. You approve everything first." },
-    { t: "Earn while you rebuild", d: "80% of direct sales and 80% of net Amazon royalties are yours, plus 100% of reader gifts, paid on a regular schedule with a clear statement." },
-  ];
+/* ============================================================
+   WHO-FOR CARDS
+   ============================================================ */
+const WHO_CARDS = [
+  { icon: "♥", label: "You lived through hard family moments and believe children deserve gentle language for them." },
+  { icon: "✶", label: "You have an idea, a feeling, or a scene — even if you have no manuscript yet." },
+  { icon: "☽", label: "You want privacy. A pen name, an illustrated portrait, or full anonymity is welcome here." },
+  { icon: "□", label: "You have no savings, portfolio, or publishing experience to offer. That is not a requirement." },
+  { icon: "❧", label: "You want to create something meaningful while you are still rebuilding." },
+  { icon: "♥", label: "You believe a child should never feel alone in a hard moment — and you want to be the one who helps." },
+];
+
+const STEPS = [
+  {
+    n: "01",
+    title: "Apply gently",
+    body: "A short application about your idea, your goals, and the kind of child your book could help. No proof of anything is required.",
+  },
+  {
+    n: "02",
+    title: "Choose your privacy",
+    body: "Use your real name, a pen name, or a private illustrated or symbolic author profile. You decide what the world sees.",
+  },
+  {
+    n: "03",
+    title: "Shape the story together",
+    body: "You bring the lived wisdom. We bring the tools: AI-assisted drafting, editorial care, design support, and a publishing pathway. Your voice stays at the centre of every page.",
+  },
+  {
+    n: "04",
+    title: "Review with care",
+    body: "Our team reviews every book for emotional safety, clarity, and tenderness. You receive warm, specific feedback. Nothing is published without your approval and ours.",
+  },
+  {
+    n: "05",
+    title: "Publish and earn",
+    body: "Your book is published through Little Amour Books. Founding authors receive 75% of net royalties after direct costs.",
+  },
+];
+
+const FAQS = [
+  {
+    q: "Do I need to be a writer?",
+    a: "No. You need a story, a feeling, or a moment that a child could understand with softer words. We help with structure, drafting, design, editing, and publishing.",
+  },
+  {
+    q: "Do I need to be an artist?",
+    a: "No. We help create the visual direction and illustrations through our AI-assisted studio and design process.",
+  },
+  {
+    q: "Do I have to use my real name?",
+    a: "No. Pen names, illustrated portraits, and symbolic author profiles are all welcome.",
+  },
+  {
+    q: "Do I have to prove what happened to me?",
+    a: "No. We do not ask for court papers, proof, or graphic details. This is a publishing process, not an investigation.",
+  },
+  {
+    q: "What does it cost?",
+    a: "For founding survivor mother authors, admin and setup costs may be waived or sponsored. The press is sustained through its 25% share of net royalties after direct costs.",
+  },
+  {
+    q: "Who publishes the book?",
+    a: "Little Amour Books publishes approved books through its publishing process and publisher accounts. Authors approve the final files and listing before publication.",
+  },
+  {
+    q: "Do I keep rights to my story?",
+    a: "Rights and publishing terms are explained clearly before publication so you can review them before moving forward.",
+  },
+  {
+    q: "Is this therapy or legal support?",
+    a: "No. Little Amour Books is a press. Our books may offer soft language for hard family moments, but we do not provide therapy, crisis services, legal advice, or case support.",
+  },
+  {
+    q: "Can my story be declined?",
+    a: "Yes. We only publish stories that can be shaped into emotionally safe, child-centred books. We may decline stories that are revenge-focused, unsafe for children, too graphic, exploitative, or outside the current mission.",
+  },
+];
+
+function WriteFAQ() {
+  const [open, setOpen] = React.useState(null);
   return (
-    <div>
-      <section className="dusk page-top">
-        <div className="wrap narrow">
-          <p className="eyebrow rose">For survivor mothers</p>
-          <h2 className="light">From your kitchen table<br />to a published book.</h2>
-          <p className="lead light">
-            You don't need savings, a portfolio, or publishing experience. You need a story
-            only you could tell — our AI studio and our editors carry the rest.
-          </p>
+    <div className="wfaq">
+      {FAQS.map((item, i) => (
+        <div key={i} className={"wfaq-item" + (open === i ? " wfaq-open" : "")}>
+          <button className="wfaq-q" onClick={() => setOpen(open === i ? null : i)}>
+            <span>{item.q}</span>
+            <span className="wfaq-icon">{open === i ? "−" : "+"}</span>
+          </button>
+          {open === i && <p className="wfaq-a">{item.a}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WritePage({ go }) {
+  return (
+    <div className="write-page">
+
+      {/* ── 1. HERO ─────────────────────────────────────── */}
+      <section className="write-hero">
+        <div className="write-stars" aria-hidden="true">
+          {[...Array(26)].map((_, i) => (
+            <span key={i} className="write-star" style={{
+              left: `${Math.floor((i * 37 + 11) % 97)}%`,
+              top: `${Math.floor((i * 53 + 7) % 88)}%`,
+              animationDelay: `${(i * 0.4) % 3}s`,
+              width: i % 3 === 0 ? "3px" : "2px",
+              height: i % 3 === 0 ? "3px" : "2px",
+            }} />
+          ))}
+        </div>
+        <div className="wrap write-hero-inner">
+          <Reveal>
+            <p className="eyebrow rose" style={{ marginBottom: 14 }}>Survivor mother with a story children need?</p>
+            <h1 className="write-hero-h">Your story can become<br />a gentle children's book.</h1>
+            <p className="write-hero-sub">
+              Little Amour Books helps survivor mothers turn lived wisdom into gentle children's books
+              for hard family moments. You do not need a manuscript, a portfolio, savings, or
+              publishing experience. Bring the moment, the feeling, and the truth you wish someone
+              had explained softly. We help shape the book with you.
+            </p>
+            <div className="write-hero-ctas">
+              <button className="btn-gold" onClick={() => go("apply")}>Apply to Write With Us</button>
+              <a href="#how-it-works" className="write-hero-link">How it works &darr;</a>
+            </div>
+            <p className="write-hero-note">Pen names and illustrated author profiles are welcome.</p>
+          </Reveal>
         </div>
       </section>
-      <section className="morning">
+
+      {/* ── 2. EMOTIONAL INVITATION ─────────────────────── */}
+      <section className="write-invitation">
+        <div className="wrap write-inv-inner">
+          <Reveal>
+            <div className="write-inv-line" aria-hidden="true" />
+            <h2 className="write-inv-h">Your story may be the soft place<br />another family needs.</h2>
+            <p className="write-inv-p">
+              Some mothers carry stories they never wanted to live — court days, leaving, fear, grief,
+              safe homes, big feelings, starting over. Inside those stories may be the words another
+              child needs to feel less alone.
+            </p>
+            <p className="write-inv-p">
+              Little Amour Books exists because those stories deserve to exist in the world — not as
+              testimony, not as proof, but as a gentle book a child can hold when words are too hard
+              to find.
+            </p>
+            <p className="write-inv-p write-inv-bold">
+              You carried something heavy. You may also be carrying something a child somewhere
+              quietly needs.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── 3. WHO THIS IS FOR ──────────────────────────── */}
+      <section className="write-who">
+        <div className="wrap">
+          <Reveal>
+            <p className="eyebrow plum center">This is for survivor mothers who</p>
+            <div className="write-who-grid">
+              {WHO_CARDS.map((c, i) => (
+                <div key={i} className="write-who-card">
+                  <span className="write-who-icon" aria-hidden="true">{c.icon}</span>
+                  <p>{c.label}</p>
+                </div>
+              ))}
+            </div>
+            <p className="write-who-note">
+              You do not have to share graphic details. You decide how much of your story you bring.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── 4. HOW IT WORKS ─────────────────────────────── */}
+      <section className="write-steps-section" id="how-it-works">
         <div className="wrap narrow">
-          <ol className="journey">
-            {steps.map((s, i) => (
-              <Reveal key={s.t} delay={i * 60}>
-                <li>
-                  <span className="j-num">{i + 1}</span>
-                  <div><h3>{s.t}</h3><p>{s.d}</p></div>
-                </li>
+          <Reveal>
+            <p className="eyebrow plum center">The process</p>
+            <h2 className="center" style={{ marginBottom: 40 }}>How it works</h2>
+          </Reveal>
+          <div className="write-steps">
+            {STEPS.map((s, i) => (
+              <Reveal key={i} delay={i * 70}>
+                <div className="write-step">
+                  <div className="write-step-num">{s.n}</div>
+                  <div className="write-step-body">
+                    <h3 className="write-step-title">{s.title}</h3>
+                    <p className="write-step-text">{s.body}</p>
+                  </div>
+                </div>
               </Reveal>
             ))}
-          </ol>
+          </div>
           <Reveal>
-            <div className="feedback-demo">
-              <p className="eyebrow plum">What feedback looks like in your dashboard</p>
-              <div className="fb-card">
-                <p className="fb-meta">Editorial note · <em>The Night We Packed the Blue Bag</em>, page 4 · <span className="fb-tag">suggestion</span></p>
-                <p>"This page is beautiful. One thought: 'we had to go fast' might land as urgency for a sensitive reader. Could the bag itself carry the pace — 'the blue bag was ready before the kettle whistled'? Your call entirely; the page works as written."</p>
-              </div>
-              <div className="fb-card">
-                <p className="fb-meta">Safety review · final pass · <span className="fb-tag ok">approved</span></p>
-                <p>"Every page lands on reassurance. The child is never blamed, never burdened, and the ending is unmistakably safe. Approved for publication — congratulations, Mara."</p>
-              </div>
-            </div>
-          </Reveal>
-          <Reveal>
-            <div className="honesty">
-              <h3>A few honest answers</h3>
-              <p><strong>Do I need to be a writer or artist?</strong> No. Our in-house AI studio drafts, illustrates, and designs with you. Your job is the story and the final say.</p>
-              <p><strong>Who publishes the book?</strong> Amazon doesn't allow automated third-party publishing, so we publish for you under the Little Amour imprint through our KDP account. You approve the final files, the price, and the listing before anything goes live.</p>
-              <p><strong>What does it cost me?</strong> Nothing. The studio, editing, design, and publishing are covered by the press's 20% share.</p>
-              <p><strong>Do I have to share my trauma?</strong> No. We will never ask for court papers, proof, or graphic details.</p>
-              <p><strong>Is this therapy or legal help?</strong> No — we are a press. We can cheer while your royalties pay the lawyer, but we aren't one.</p>
-            </div>
-          </Reveal>
-          <Reveal>
-            <div className="center" style={{ padding: "28px 0 6px" }}>
-              <button className="btn-gold" onClick={() => go("apply")}>Apply to write with us</button>
+            <div className="center" style={{ paddingTop: 36 }}>
+              <button className="btn-gold" onClick={() => go("apply")}>Apply to Write With Us</button>
             </div>
           </Reveal>
         </div>
       </section>
+
+      {/* ── 5. AI STUDIO ────────────────────────────────── */}
+      <section className="write-ai">
+        <div className="wrap write-ai-inner">
+          <Reveal>
+            <div className="write-ai-tag">AI-assisted studio</div>
+            <h2 className="write-ai-h">You bring the wisdom.<br />We bring the tools.</h2>
+            <p className="write-ai-p">
+              Our AI-assisted studio helps with structure, page drafts, visual direction, and design
+              support. It drafts alongside you, not instead of you. The heart of the book is still
+              yours — your lived wisdom, your approval, your final say.
+            </p>
+            <p className="write-ai-p">
+              You do not need to know how to write, illustrate, or design. We help carry all of that.
+              What only you can bring is the truth at the centre of the story.
+            </p>
+            <div className="write-ai-pills">
+              <span className="write-ai-pill">Structure &amp; drafting</span>
+              <span className="write-ai-pill">Page-by-page illustration</span>
+              <span className="write-ai-pill">Design &amp; layout</span>
+              <span className="write-ai-pill">Editorial care</span>
+              <span className="write-ai-pill">Publishing support</span>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── 6. EDITORIAL CARE ───────────────────────────── */}
+      <section className="write-editorial">
+        <div className="wrap narrow">
+          <Reveal>
+            <p className="eyebrow plum">What editorial care looks like</p>
+            <h2 style={{ marginBottom: 28 }}>Your voice. Our care.<br />Your approval before anything moves.</h2>
+            <div className="write-fb-card">
+              <div className="write-fb-meta">
+                <span className="write-fb-type editorial">Editorial note</span>
+                <span className="write-fb-book">The Night We Packed the Blue Bag &middot; page 4</span>
+              </div>
+              <p className="write-fb-text">
+                "This page is beautiful. One thought: the line <em>'we had to go fast'</em> may feel
+                intense for a sensitive child. Could the blue bag carry the urgency instead? For
+                example: <em>'The blue bag was ready before the kettle whistled.'</em> Your call —
+                the heart of the page already works."
+              </p>
+            </div>
+            <div className="write-fb-card approved">
+              <div className="write-fb-meta">
+                <span className="write-fb-type safety">Safety review</span>
+                <span className="write-fb-book">Final pass</span>
+                <span className="write-fb-approved">Approved</span>
+              </div>
+              <p className="write-fb-text">
+                "Every page lands on reassurance. The child is never blamed, never burdened, and the
+                ending is unmistakably safe. Approved for publication."
+              </p>
+            </div>
+            <div className="write-ed-promises">
+              <div className="write-ed-promise"><span className="write-ed-dot" />Feedback is warm and specific</div>
+              <div className="write-ed-promise"><span className="write-ed-dot" />You retain agency over every revision</div>
+              <div className="write-ed-promise"><span className="write-ed-dot" />Child safety is held as a non-negotiable</div>
+              <div className="write-ed-promise"><span className="write-ed-dot" />Nothing is published without your approval and ours</div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── 7. ROYALTIES ────────────────────────────────── */}
+      <section className="write-royalty">
+        <div className="wrap narrow">
+          <Reveal>
+            <p className="eyebrow rose center">Author-first royalty model</p>
+            <h2 className="center write-royalty-h">Built to pay survivor mothers.</h2>
+            <div className="write-royalty-card">
+              <div className="write-royalty-split">
+                <div className="write-royalty-author">
+                  <span className="write-royalty-pct">75%</span>
+                  <span className="write-royalty-who">Founding author</span>
+                </div>
+                <div className="write-royalty-divider" />
+                <div className="write-royalty-press">
+                  <span className="write-royalty-pct small">25%</span>
+                  <span className="write-royalty-who">Little Amour Books</span>
+                </div>
+              </div>
+              <p className="write-royalty-desc">
+                Founding authors receive <strong>75% of net royalties</strong> after direct costs.
+                Little Amour Books keeps 25% to support editing, publishing, platform costs, and growth.
+              </p>
+              <div className="write-royalty-example">
+                <span className="write-royalty-eg-label">Simple example</span>
+                <p>If a sale creates $10 in net royalties after direct costs — the founding author receives $7.50 and Little Amour receives $2.50.</p>
+              </div>
+              <p className="write-royalty-note">
+                Direct costs may include printing, Amazon or KDP fees, payment processing, delivery,
+                and other direct production or sale costs. These are tracked transparently and shown
+                in your author dashboard.
+              </p>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── 8. PRIVACY ──────────────────────────────────── */}
+      <section className="write-privacy">
+        <div className="wrap narrow">
+          <Reveal>
+            <p className="eyebrow plum">Privacy &amp; safety</p>
+            <h2 style={{ marginBottom: 10 }}>Your privacy matters here.</h2>
+            <p className="write-priv-lead">We protect the child reader. We protect the author. We protect the dignity of the story.</p>
+            <div className="write-priv-grid">
+              {[
+                "Pen names are welcome",
+                "Illustrated or symbolic author portraits available",
+                "No graphic details required",
+                "No proof of trauma required",
+                "No court papers required",
+                "You choose how much of your story you share",
+                "We do not publish revenge-focused or adult-unsafe content",
+                "We do not publish content that burdens or blames children",
+              ].map((item, i) => (
+                <div key={i} className="write-priv-item">
+                  <span className="write-priv-check" aria-hidden="true">&#10003;</span>
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── 9. FAQ ──────────────────────────────────────── */}
+      <section className="write-faq-section">
+        <div className="wrap narrow">
+          <Reveal>
+            <p className="eyebrow plum center">Questions</p>
+            <h2 className="center" style={{ marginBottom: 32 }}>Honest answers.</h2>
+            <WriteFAQ />
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── 10. FINAL CTA ───────────────────────────────── */}
+      <section className="write-final-cta">
+        <div className="wrap narrow center">
+          <Reveal>
+            <Moon size={40} color="#E2A857" />
+            <h2 className="write-final-h">Have a story children need?</h2>
+            <p className="write-final-sub">
+              If you are a survivor mother with a story that could help a child feel safer, softer, or
+              less alone, we would be honoured to read your application.
+            </p>
+            <div className="write-final-btns">
+              <button className="btn-gold" onClick={() => go("apply")}>Apply to Write With Us</button>
+              <a href="mailto:hi@littleamourbooks.com" className="write-hero-link">Questions? Contact us</a>
+            </div>
+            <p className="write-hero-note">Applying creates no obligation on either side.</p>
+          </Reveal>
+        </div>
+      </section>
+
     </div>
   );
 }
@@ -2488,6 +2788,544 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 /* suggest theme box in apply form */
 .suggest-theme-box { background: #F5F0FB; border: 1.5px solid #D8CBE8; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
 .suggest-theme-note { font-size: 13.5px; color: #6E5572; line-height: 1.6; margin: 0; }
+
+
+/* ============================================================
+   BECOME AN AUTHOR — WritePage styles
+   ============================================================ */
+
+/* Page wrapper */
+.write-page { }
+
+/* ── HERO ───────────────────────────────────────────────── */
+.write-hero {
+  position: relative;
+  background: radial-gradient(130% 100% at 50% 0%, #1B2444 0%, ${P.night} 50%, #0D1221 100%);
+  color: ${P.cream};
+  padding: 90px 26px 100px;
+  overflow: hidden;
+  text-align: center;
+}
+.write-hero-inner { position: relative; z-index: 1; }
+.write-stars { position: absolute; inset: 0; pointer-events: none; }
+.write-star {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255,249,240,.75);
+  animation: write-twinkle 3s ease-in-out infinite alternate;
+}
+@keyframes write-twinkle { from { opacity: .3; } to { opacity: 1; } }
+.write-hero-h {
+  font-family: var(--display);
+  font-size: clamp(30px, 5vw, 52px);
+  font-weight: 800;
+  color: ${P.cream};
+  line-height: 1.15;
+  margin-bottom: 22px;
+}
+.write-hero-sub {
+  font-size: clamp(15px, 2vw, 17.5px);
+  color: rgba(255,249,240,.82);
+  max-width: 58ch;
+  margin: 0 auto 30px;
+  line-height: 1.72;
+}
+.write-hero-ctas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.write-hero-link {
+  color: ${P.roseSoft};
+  font-size: 14.5px;
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(242,207,197,.4);
+  padding-bottom: 2px;
+}
+.write-hero-link:hover { border-bottom-color: ${P.roseSoft}; }
+.write-hero-note {
+  font-size: 12.5px;
+  color: rgba(255,249,240,.45);
+  margin: 0;
+  letter-spacing: .02em;
+}
+
+/* ── EMOTIONAL INVITATION ───────────────────────────────── */
+.write-invitation {
+  background: ${P.cream};
+  padding: 80px 26px;
+}
+.write-inv-inner {
+  max-width: 680px;
+  margin: 0 auto;
+}
+.write-inv-line {
+  width: 48px;
+  height: 3px;
+  background: linear-gradient(90deg, ${P.mauve}, ${P.rose});
+  border-radius: 99px;
+  margin: 0 auto 36px;
+}
+.write-inv-h {
+  font-family: var(--display);
+  font-size: clamp(24px, 3.5vw, 36px);
+  color: ${P.ink};
+  text-align: center;
+  line-height: 1.25;
+  margin-bottom: 28px;
+}
+.write-inv-p {
+  font-size: 16.5px;
+  color: ${P.inkSoft};
+  line-height: 1.78;
+  margin-bottom: 18px;
+  max-width: 62ch;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+}
+.write-inv-bold {
+  color: ${P.ink};
+  font-style: italic;
+  font-size: 17px;
+}
+
+/* ── WHO THIS IS FOR ────────────────────────────────────── */
+.write-who {
+  background: ${P.paperWarm};
+  padding: 80px 26px;
+}
+.write-who-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 28px 0 22px;
+}
+.write-who-card {
+  background: #fff;
+  border: 1.5px solid #E9DCC8;
+  border-radius: 16px;
+  padding: 22px 20px;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  box-shadow: 0 2px 12px rgba(0,0,0,.04);
+}
+.write-who-icon {
+  font-size: 20px;
+  color: ${P.mauve};
+  flex-shrink: 0;
+  line-height: 1.3;
+}
+.write-who-card p {
+  font-size: 14.5px;
+  color: ${P.inkSoft};
+  line-height: 1.65;
+  margin: 0;
+}
+.write-who-note {
+  text-align: center;
+  font-size: 14px;
+  color: ${P.inkSoft};
+  font-style: italic;
+  margin: 8px 0 0;
+}
+
+/* ── HOW IT WORKS ───────────────────────────────────────── */
+.write-steps-section {
+  background: ${P.cream};
+  padding: 80px 26px;
+}
+.write-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.write-step {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 24px 0;
+  border-bottom: 1px solid #EAD9C3;
+}
+.write-step:last-child { border-bottom: none; }
+.write-step-num {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 800;
+  color: ${P.gold};
+  letter-spacing: .08em;
+  background: ${P.night};
+  border-radius: 8px;
+  padding: 7px 10px;
+  flex-shrink: 0;
+  min-width: 42px;
+  text-align: center;
+}
+.write-step-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: ${P.ink};
+  margin-bottom: 6px;
+}
+.write-step-text {
+  font-size: 15px;
+  color: ${P.inkSoft};
+  line-height: 1.68;
+  margin: 0;
+  max-width: 62ch;
+}
+
+/* ── AI STUDIO ──────────────────────────────────────────── */
+.write-ai {
+  background: linear-gradient(160deg, ${P.night} 0%, #1E2A4A 100%);
+  padding: 80px 26px;
+  color: ${P.cream};
+}
+.write-ai-inner {
+  max-width: 700px;
+  margin: 0 auto;
+  text-align: center;
+}
+.write-ai-tag {
+  display: inline-block;
+  background: rgba(226,168,87,.18);
+  color: ${P.gold};
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  padding: 5px 14px;
+  border-radius: 999px;
+  margin-bottom: 20px;
+}
+.write-ai-h {
+  font-family: var(--display);
+  font-size: clamp(24px, 4vw, 38px);
+  font-weight: 800;
+  color: ${P.cream};
+  line-height: 1.2;
+  margin-bottom: 22px;
+}
+.write-ai-p {
+  font-size: 16px;
+  color: rgba(255,249,240,.78);
+  line-height: 1.75;
+  margin-bottom: 16px;
+  max-width: 58ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+.write-ai-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 28px;
+}
+.write-ai-pill {
+  background: rgba(255,249,240,.1);
+  border: 1px solid rgba(255,249,240,.2);
+  color: rgba(255,249,240,.85);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ── EDITORIAL CARE ─────────────────────────────────────── */
+.write-editorial {
+  background: ${P.paperWarm};
+  padding: 80px 26px;
+}
+.write-fb-card {
+  background: #fff;
+  border: 1.5px solid #E9DCC8;
+  border-left: 5px solid ${P.gold};
+  border-radius: 14px;
+  padding: 20px 22px;
+  margin-bottom: 14px;
+  box-shadow: 0 3px 14px rgba(0,0,0,.05);
+}
+.write-fb-card.approved {
+  border-left-color: ${P.sage};
+}
+.write-fb-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.write-fb-type {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.write-fb-type.editorial { background: #F4E5C8; color: #8B6320; }
+.write-fb-type.safety { background: #D4EFE0; color: #1A6B41; }
+.write-fb-book {
+  font-size: 12px;
+  color: ${P.inkSoft};
+  font-style: italic;
+}
+.write-fb-approved {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+  color: ${P.sage};
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
+.write-fb-text {
+  font-size: 14.5px;
+  color: ${P.ink};
+  line-height: 1.7;
+  margin: 0;
+}
+.write-ed-promises {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 20px;
+  margin-top: 28px;
+}
+.write-ed-promise {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: ${P.inkSoft};
+}
+.write-ed-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: ${P.mauve};
+  flex-shrink: 0;
+}
+
+/* ── ROYALTIES ──────────────────────────────────────────── */
+.write-royalty {
+  background: ${P.dusk};
+  padding: 80px 26px;
+}
+.write-royalty-h {
+  color: ${P.cream};
+  margin-bottom: 36px;
+}
+.write-royalty-card {
+  background: rgba(255,249,240,.06);
+  border: 1.5px solid rgba(226,168,87,.3);
+  border-radius: 20px;
+  padding: 36px 32px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+.write-royalty-split {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 28px;
+  background: rgba(255,249,240,.05);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.write-royalty-author {
+  flex: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22px 16px;
+  background: rgba(226,168,87,.15);
+  border-right: 1px solid rgba(226,168,87,.2);
+}
+.write-royalty-press {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 22px 16px;
+}
+.write-royalty-pct {
+  font-family: var(--display);
+  font-size: 48px;
+  font-weight: 900;
+  color: ${P.gold};
+  line-height: 1;
+}
+.write-royalty-pct.small { font-size: 30px; color: rgba(255,249,240,.5); }
+.write-royalty-who {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,249,240,.6);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-top: 6px;
+}
+.write-royalty-divider { width: 1px; background: rgba(226,168,87,.2); align-self: stretch; }
+.write-royalty-desc {
+  font-size: 15px;
+  color: rgba(255,249,240,.8);
+  line-height: 1.7;
+  margin-bottom: 20px;
+  text-align: center;
+}
+.write-royalty-desc strong { color: ${P.gold}; }
+.write-royalty-example {
+  background: rgba(255,249,240,.07);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.write-royalty-eg-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  color: ${P.gold};
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  margin-bottom: 6px;
+}
+.write-royalty-example p {
+  font-size: 14px;
+  color: rgba(255,249,240,.75);
+  line-height: 1.6;
+  margin: 0;
+}
+.write-royalty-note {
+  font-size: 12.5px;
+  color: rgba(255,249,240,.45);
+  line-height: 1.65;
+  text-align: center;
+  margin: 0;
+}
+
+/* ── PRIVACY ────────────────────────────────────────────── */
+.write-privacy {
+  background: ${P.cream};
+  padding: 80px 26px;
+}
+.write-priv-lead {
+  font-size: 16px;
+  color: ${P.mauve};
+  font-style: italic;
+  font-weight: 600;
+  margin-bottom: 32px;
+  line-height: 1.5;
+}
+.write-priv-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 24px;
+}
+.write-priv-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14.5px;
+  color: ${P.ink};
+  line-height: 1.55;
+}
+.write-priv-check {
+  color: ${P.sage};
+  font-size: 16px;
+  font-weight: 900;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── FAQ ────────────────────────────────────────────────── */
+.write-faq-section {
+  background: ${P.paperWarm};
+  padding: 80px 26px;
+}
+.wfaq {
+  border: 1.5px solid #E9DCC8;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+}
+.wfaq-item {
+  border-bottom: 1px solid #EAD9C3;
+}
+.wfaq-item:last-child { border-bottom: none; }
+.wfaq-q {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 22px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 700;
+  color: ${P.ink};
+  cursor: pointer;
+  font-family: inherit;
+}
+.wfaq-q:hover { background: ${P.cream}; }
+.wfaq-icon {
+  font-size: 20px;
+  color: ${P.mauve};
+  flex-shrink: 0;
+  font-weight: 400;
+}
+.wfaq-a {
+  padding: 0 22px 18px;
+  font-size: 14.5px;
+  color: ${P.inkSoft};
+  line-height: 1.72;
+  margin: 0;
+}
+.wfaq-open .wfaq-q { color: ${P.mauve}; background: #FAF6FF; }
+
+/* ── FINAL CTA ──────────────────────────────────────────── */
+.write-final-cta {
+  background: radial-gradient(120% 100% at 50% 0%, #1B2444 0%, ${P.night} 60%, #0D1221 100%);
+  padding: 90px 26px;
+  text-align: center;
+  color: ${P.cream};
+}
+.write-final-h {
+  font-family: var(--display);
+  font-size: clamp(26px, 4vw, 40px);
+  color: ${P.cream};
+  margin: 20px 0 16px;
+}
+.write-final-sub {
+  font-size: 16.5px;
+  color: rgba(255,249,240,.78);
+  max-width: 52ch;
+  margin: 0 auto 30px;
+  line-height: 1.72;
+}
+.write-final-btns {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+/* ── MOBILE ─────────────────────────────────────────────── */
+@media (max-width: 660px) {
+  .write-who-grid { grid-template-columns: 1fr; }
+  .write-ed-promises { grid-template-columns: 1fr; }
+  .write-priv-grid { grid-template-columns: 1fr; }
+  .write-royalty-card { padding: 24px 18px; }
+  .write-hero-ctas { flex-direction: column; gap: 14px; }
+  .write-final-btns { flex-direction: column; gap: 14px; }
+}
 
 ${STORE_CSS}
 `;
