@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
 import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS } from "./Bookstore";
 import { supabase } from "./supabaseClient";
+import PublishingModule from "./Publishing";
 
 /* ============================================================
    LITTLE AMOUR BOOKS — rev 2
@@ -1576,7 +1577,7 @@ function KirbyStudio({ go, onSignOut }) {
   const [data, setData] = useState(KIRBY_SEED);
   const [loaded, setLoaded] = useState(false);
   const [openId, setOpenId] = useState(null);
-  const [view, setView] = useState("list"); // list | build | edit
+  const [view, setView] = useState("list"); // list | build | edit | publish
   const [pickingCollection, setPickingCollection] = useState(false); // collection picker modal
   const [savedFlash, setSavedFlash] = useState(false);
 
@@ -1695,6 +1696,7 @@ function KirbyStudio({ go, onSignOut }) {
                     </div>
                     <div className="dash-actions">
                       <button className="btn-text" onClick={() => { setOpenId(b.id); setView("edit"); }}>Open →</button>
+                      <button className="btn-text" style={{color:"#E2A857"}} onClick={() => { setOpenId(b.id); setView("publish"); }}>Publish ✦</button>
                       {b.characters && b.characters.length && !b.collectionId ? (
                         <button className="btn-text soft" onClick={() => saveCollectionFromBook(b.id)}>Save as collection</button>
                       ) : null}
@@ -1733,6 +1735,11 @@ function KirbyStudio({ go, onSignOut }) {
         </div>
       </section>
     );
+  }
+
+  /* ---------------- PUBLISH ---------------- */
+  if (view === "publish" && book) {
+    return <PublishingModule book={book} setBook={setBook} author={{ name: data.name || "Kirby" }} onBack={() => setView("list")} />;
   }
 
   /* ---------------- AMORA BUILD ---------------- */
