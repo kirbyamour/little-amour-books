@@ -673,7 +673,7 @@ function EmailCapture() {
    ============================================================ */
 
 /* Store Landing Page */
-export function StoreLanding({ go, books }) {
+export function StoreLanding({ go, books, afterFavorites }) {
   const featuredBooks = books.filter(b => ["papers", "bluebag", "brave", "moonbear"].includes(b.id));
   const featuredPacks = PACKS.filter(p => p.isFeatured);
 
@@ -755,6 +755,9 @@ export function StoreLanding({ go, books }) {
           </div>
         </div>
       </section>
+
+      {/* Merch — injected from parent to avoid circular import */}
+      {afterFavorites}
 
       {/* Not sure where to start */}
       <StartHereGuide go={go} />

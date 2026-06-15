@@ -2819,7 +2819,7 @@ export default function App() {
         description="Browse our full collection of gentle illustrated children's books for hard family moments. Written by survivor mothers. Ships worldwide."
         canonical="https://littleamour.com/shop"
       />
-      <><ShopMerchSection go={go} /><StoreLanding go={go} books={BOOKS} /></>
+      <StoreLanding go={go} books={BOOKS} afterFavorites={<ShopMerchSection go={go} />} />
     </>
   );
   else if (route.page === "books") page = (
