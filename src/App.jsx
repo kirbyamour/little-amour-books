@@ -11,7 +11,7 @@ import {
 } from "./PolicyPages";
 import { RefundRequestForm } from "./RefundRequestForm";
 import PublishingModule from "./Publishing";
-import { PODProductSection } from "./PODSystem";
+import { PODProductSection, ShopMerchSection } from "./PODSystem";
 
 /* ============================================================
    LITTLE AMOUR BOOKS — rev 2
@@ -2750,7 +2750,7 @@ export default function App() {
 
   let page = null;
   if (route.page === "home") page = <HomePage go={go} />;
-  else if (route.page === "store") page = <StoreLanding go={go} books={BOOKS} />;
+  else if (route.page === "store") page = <><StoreLanding go={go} books={BOOKS} /><ShopMerchSection go={go} /></>;
   else if (route.page === "books") page = <BooksShop go={go} books={BOOKS} />;
   else if (route.page === "packs") page = <PacksPage go={go} books={BOOKS} />;
   else if (route.page === "pack") page = <PackPage packId={route.id} go={go} books={BOOKS} addToCart={addToCart} />;

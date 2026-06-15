@@ -767,9 +767,6 @@ export function StoreLanding({ go, books }) {
 
       {/* Email */}
       <EmailCapture />
-
-      {/* Merch strip */}
-      <ShopMerchSection go={go} />
     </div>
   );
 }
