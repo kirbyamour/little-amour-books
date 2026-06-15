@@ -1001,9 +1001,9 @@ export default PODAdminDashboard;
    Shows one tote + mug + bookmark using representative phrases
    ============================================================ */
 const SHOP_SAMPLE_ITEMS = [
-  { id: "shop-tote",     type: "tote",     label: "Tote Bag",             price: 28,  earn: 12.52, phrase: "Brave stories, brave kids.",   grad: ["#2A1F4F", "#1A3050"] },
-  { id: "shop-mug",      type: "mug",      label: "Ceramic Mug — 11oz",   price: 22,  earn: 9.60,  phrase: "Home is who holds you.",        grad: ["#2D4A3E", "#1A3050"] },
-  { id: "shop-bookmark", type: "bookmark", label: "Bookmark Set — 3-pack", price: 14, earn: 6.82,  phrase: "Truth told gently.",            grad: ["#4A2D3E", "#2A1F4F"] },
+  { id: "shop-tote",  type: "tote",  label: "Eco Tote Bag",         price: 28, earn: 12.52, img: "https://images.printify.com/api/catalog/6883649c0e14ddc83f0e6bb2.jpg?s=400" },
+  { id: "shop-mug",   type: "mug",   label: "Ceramic Mug — 11oz",   price: 22, earn: 9.60,  img: "https://images.printify.com/api/catalog/66d94d839bd43b3eac03ded2.jpg?s=400" },
+  { id: "shop-card",  type: "card",  label: "Greeting Card",         price: 9,  earn: 4.20,  img: "https://images.printify.com/api/catalog/66f50436951b72e3d902e204.jpg?s=400" },
 ];
 
 export function ShopMerchSection({ go }) {
@@ -1041,16 +1041,13 @@ export function ShopMerchSection({ go }) {
           {SHOP_SAMPLE_ITEMS.map(item => (
             <div key={item.id} className="shop-merch-card">
               <div className="shop-merch-visual">
-                {item.type === "tote"     && <ToteMockup     grad={item.grad} phrase={item.phrase} size={160} />}
-                {item.type === "mug"      && <MugMockup      grad={item.grad} phrase={item.phrase} size={160} />}
-                {item.type === "bookmark" && <BookmarkMockup grad={item.grad} phrase={item.phrase} size={160} />}
+                <img src={item.img} alt={item.label} style={{ width: "100%", height: "170px", objectFit: "cover", display: "block" }} />
               </div>
               <div className="shop-merch-body">
                 <p className="shop-merch-label">{item.label}</p>
                 <p className="shop-merch-price">${item.price.toFixed(2)}</p>
                 <p className="shop-merch-earn">✦ ~${item.earn.toFixed(2)} to the author</p>
-                <p className="shop-merch-note">Printed on demand. Ships in 5–10 days. Each design is unique to the book you love.</p>
-                <button className="shop-merch-cta" onClick={() => go("books")}>Find on a book page →</button>
+                <p className="shop-merch-note">Printed on demand. Ships in 5–10 business days.</p>
               </div>
             </div>
           ))}
