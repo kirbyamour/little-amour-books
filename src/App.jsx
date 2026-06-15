@@ -8,10 +8,7 @@ import {
   ReviewsPolicyPage, PreorderPolicyPage,
   PolicyFooterLinks, DigitalProductNotice, PhysicalProductNotice,
   CheckoutPolicyLinks, POLICY_VERSION,
-  PayoutResponsibilityPage, PayoutWarningBanner, PayoutOnboardingFlow,
 } from "./PolicyPages";
-import { SEOHead, TopicPage, NotFoundPage, bookSchema } from "./SEOSystem";
-import { PODProductSection, PODDesignStudio } from "./PODSystem";
 import { RefundRequestForm } from "./RefundRequestForm";
 import PublishingModule from "./Publishing";
 
@@ -609,14 +606,7 @@ function BookPage({ book, go, toast, addToCart }) {
             <p className="fine">75% of every direct sale goes to {book.authorName}. Created in our AI book studio with her story at the center, and reviewed for emotional safety before publication.</p>
           </div>
         </div>
-        <PODProductSection book={book} addToCart={addToCart} />
       </div>
-      <SEOHead
-        title={book.title}
-        description={book.tagline || book.adult}
-        canonical={`https://littleamour.com/book/${book.id}`}
-        schema={bookSchema(book)}
-      />
     </section>
   );
 }
@@ -2781,10 +2771,6 @@ export default function App() {
   else if (route.page === "policy-accessibility") page = <AccessibilityPage go={go} />;
   else if (route.page === "policy-reviews") page = <ReviewsPolicyPage go={go} />;
   else if (route.page === "policy-preorder") page = <PreorderPolicyPage go={go} />;
-  else if (route.page === "policy-payout") page = <PayoutResponsibilityPage go={go} />;
-  else if (route.page === "payout-responsibility") page = <PayoutResponsibilityPage go={go} />;
-  else if (route.page === "payout-setup") page = <PayoutOnboardingFlow go={go} onComplete={() => go("dashboard")} />;
-  else if (route.page === "topic") page = <TopicPage slug={route.id} books={BOOKS} go={go} />;
   else if (route.page === "policy-refund-form") page = <RefundRequestForm go={go} />;
   else if (route.page === "contact") page = <RefundRequestForm go={go} />;
   else if (route.page === "admin") return <AdminDashboard onBack={() => go("home")} />;
@@ -2793,7 +2779,6 @@ export default function App() {
     else if (account?.isKirby) page = <KirbyStudio go={go} onSignOut={() => { setAccount(null); go("home"); }} />;
     else page = <DashboardPage go={go} author={account} onSignOut={() => { setAccount(null); go("home"); }} />;
   }
-  else page = <NotFoundPage go={go} />;
 
   const NAV = [
     ["home", "Home"],
