@@ -1763,7 +1763,7 @@ function SignInPage({ onSignIn }) {
       if (error || !data) {
         setErr("We don\'t recognize that email and password. Try again.");
       } else {
-        onSignIn({ id: data.id, name: data.pen_name, email: data.email, isKirby: data.is_admin });
+        onSignIn({ id: data.id, name: data.pen_name, email: data.email, isKirby: data.is_admin, photoUrl: data.photo_url || null });
       }
     } catch(ex) {
       setErr("Something went wrong. Please try again.");
@@ -1802,9 +1802,63 @@ const DASH_SEED = {
   ],
 };
 
+
+function ProfilePhotoUpload({ author, onPhotoUpdate }) {
+  const [uploading, setUploading] = React.useState(false);
+  const [photoUrl, setPhotoUrl] = React.useState(author.photoUrl || null);
+  const [err, setErr] = React.useState("");
+  const inputRef = React.useRef();
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setErr("Please choose an image file."); return; }
+    if (file.size > 5 * 1024 * 1024) { setErr("Photo must be under 5 MB."); return; }
+    setUploading(true); setErr("");
+    try {
+      const ext = file.name.split(".").pop().toLowerCase();
+      const path = `${author.id}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("author-photos")
+        .upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: { publicUrl } } = supabase.storage.from("author-photos").getPublicUrl(path);
+      const bust = publicUrl + "?t=" + Date.now();
+      await supabase.from("author_profiles").update({ photo_url: publicUrl }).eq("id", author.id);
+      setPhotoUrl(bust);
+      onPhotoUpdate && onPhotoUpdate(publicUrl);
+    } catch (ex) {
+      setErr("Upload failed — please try again.");
+      console.error(ex);
+    }
+    setUploading(false);
+  };
+
+  const initial = (author.name || "?")[0].toUpperCase();
+  return (
+    <div className="profile-photo-card">
+      <div className="profile-photo-wrap">
+        {photoUrl
+          ? <img src={photoUrl} alt="Your author photo" className="profile-photo-img" />
+          : <div className="profile-photo-placeholder">{initial}</div>}
+      </div>
+      <div className="profile-photo-info">
+        <p className="profile-photo-name">{author.name}</p>
+        <p className="fine" style={{marginBottom:8}}>Your photo appears on your author page and beside your books.</p>
+        <button className="btn-gold" style={{fontSize:13,padding:"7px 16px"}} onClick={() => inputRef.current.click()} disabled={uploading}>
+          {uploading ? "Uploading…" : photoUrl ? "Change photo" : "Upload photo"}
+        </button>
+        <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}} />
+        {err && <p className="form-err" style={{marginTop:6,fontSize:13}}>{err}</p>}
+      </div>
+    </div>
+  );
+}
+
 function DashboardPage({ go, author, onSignOut }) {
   const [reply, setReply] = useState("");
   const [thread, setThread] = useState(DASH_SEED.feedback);
+  const [currentAuthor, setCurrentAuthor] = React.useState(author);
   const send = () => {
     const t = reply.trim();
     if (!t) return;
@@ -1824,6 +1878,8 @@ function DashboardPage({ go, author, onSignOut }) {
           </div>
           <button className="btn-text" onClick={onSignOut}>Sign out</button>
         </div>
+
+        <ProfilePhotoUpload author={currentAuthor} onPhotoUpdate={(url) => setCurrentAuthor(a => ({...a, photoUrl: url}))} />
 
         <div className="dash-grid">
           <div className="dash-col">
@@ -3284,6 +3340,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .form .btn-line { align-self: flex-start; }
 
 /* dashboard */
+.profile-photo-card { display: flex; align-items: center; gap: 20px; background: #fff; border: 1px solid #EBDFCC; border-radius: 16px; padding: 18px 22px; margin: 22px 0 4px; }
+.profile-photo-wrap { flex-shrink: 0; }
+.profile-photo-img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid #E5AC9F; }
+.profile-photo-placeholder { width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #6E3E50, #A4707E); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 32px; font-weight: 600; }
+.profile-photo-name { font-weight: 600; font-size: 16px; margin-bottom: 2px; }
+.profile-photo-info { display: flex; flex-direction: column; }
 .dash-grid { display: grid; grid-template-columns: 1fr 1.15fr; gap: 36px; margin-top: 18px; align-items: start; }
 /* Modal */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(30,24,18,0.45); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
