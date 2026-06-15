@@ -43,8 +43,130 @@ const POD_PROVIDER = {
 };
 
 /* ============================================================
+   CREATIVE PHRASES — inspiring copy for each book / product
+   ============================================================ */
+const BOOK_PHRASES = {
+  papers:   { tote: "Some days are grown-up days.", mug: "Love stays, even on paper days.", bookmark: "Brave little hearts." },
+  bluebag:  { tote: "Home is who holds you.", mug: "We brought the love with us.", bookmark: "Brave is what you carry." },
+  brave:    { tote: "Brave is a quiet thing.", mug: "Quietly, fiercely loved.", bookmark: "Brave stories, brave kids." },
+  backpack: { tote: "Big feelings deserve big space.", mug: "You are not too much.", bookmark: "Feel it. Name it. Keep going." },
+  worrycloud: { tote: "Clouds pass. You stay.", mug: "Your feelings are real and you're safe.", bookmark: "Worry less. Wonder more." },
+  twohomes: { tote: "Love lives in two places.", mug: "You belong in both.", bookmark: "Two homes, one whole heart." },
+  moonbear: { tote: "Breathe in. Breathe out. You've got this.", mug: "Moon Bear says: you're safe.", bookmark: "Still waters. Still brave." },
+  _default: { tote: "Truth told gently.", mug: "Stories that help.", bookmark: "Brave words for hard days." },
+};
+function getPhrase(bookId, type) {
+  return (BOOK_PHRASES[bookId] || BOOK_PHRASES._default)[type] || "Brave stories brave kids.";
+}
+
+/* ============================================================
+   SVG PRODUCT MOCKUPS — real visual previews with branded copy
+   ============================================================ */
+function ToteMockup({ grad, phrase, size = 200 }) {
+  const [c1, c2] = grad || ["#2A1F4F", "#1A3050"];
+  return (
+    <svg width={size} height={size} viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      {/* handles */}
+      <path d="M68 58 Q65 28 85 28 Q105 28 102 58" fill="none" stroke="#C8B89A" strokeWidth="7" strokeLinecap="round"/>
+      <path d="M98 58 Q95 22 120 22 Q145 22 142 58" fill="none" stroke="#C8B89A" strokeWidth="7" strokeLinecap="round"/>
+      {/* bag body */}
+      <rect x="42" y="56" width="116" height="120" rx="10" fill="#FAF0E0"/>
+      {/* color band */}
+      <rect x="42" y="56" width="116" height="36" rx="10" fill="url(#tg)"/>
+      <rect x="42" y="76" width="116" height="16" fill="url(#tg)"/>
+      <defs><linearGradient id="tg" x1="0" y1="0" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop offset="0" stopColor={c1}/><stop offset="1" stopColor={c2}/></linearGradient></defs>
+      {/* moon motif */}
+      <text x="100" y="108" textAnchor="middle" fontSize="22" dominantBaseline="middle">🌙</text>
+      {/* phrase — wrap at ~18ch */}
+      {(() => {
+        const words = phrase.split(" ");
+        const lines = []; let line = "";
+        words.forEach(w => { if ((line + " " + w).trim().length > 18) { lines.push(line.trim()); line = w; } else { line = (line + " " + w).trim(); }});
+        if (line) lines.push(line);
+        const startY = 128 + (lines.length === 1 ? 8 : 0);
+        return lines.map((l, i) => (
+          <text key={i} x="100" y={startY + i * 16} textAnchor="middle" fontSize="11.5" fill="#3A2E4A" fontFamily="Georgia,serif" fontStyle="italic">{l}</text>
+        ));
+      })()}
+      {/* Little Amour wordmark */}
+      <text x="100" y="168" textAnchor="middle" fontSize="8.5" fill="#9A8878" fontFamily="Georgia,serif" letterSpacing="1.5">LITTLE AMOUR</text>
+    </svg>
+  );
+}
+
+function MugMockup({ grad, phrase, size = 200 }) {
+  const [c1, c2] = grad || ["#2A1F4F", "#1A3050"];
+  return (
+    <svg width={size} height={size} viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="mg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor={c1}/><stop offset="1" stopColor={c2}/></linearGradient>
+        <clipPath id="mc"><rect x="38" y="52" width="108" height="96" rx="8"/></clipPath>
+      </defs>
+      {/* mug body */}
+      <rect x="38" y="52" width="108" height="96" rx="8" fill="white" stroke="#DDD0C0" strokeWidth="1.5"/>
+      {/* color fill */}
+      <rect x="38" y="52" width="108" height="96" rx="8" fill="url(#mg)" opacity="0.92"/>
+      {/* handle */}
+      <path d="M146 72 Q172 72 172 100 Q172 128 146 128" fill="none" stroke="#DDD0C0" strokeWidth="8" strokeLinecap="round"/>
+      <path d="M146 72 Q166 72 166 100 Q166 128 146 128" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round"/>
+      {/* moon */}
+      <text x="92" y="88" textAnchor="middle" fontSize="18" dominantBaseline="middle">🌙</text>
+      {/* phrase */}
+      {(() => {
+        const words = phrase.split(" ");
+        const lines = []; let line = "";
+        words.forEach(w => { if ((line + " " + w).trim().length > 16) { lines.push(line.trim()); line = w; } else { line = (line + " " + w).trim(); }});
+        if (line) lines.push(line);
+        const startY = 108 + (lines.length === 1 ? 6 : 0);
+        return lines.map((l, i) => (
+          <text key={i} x="92" y={startY + i * 15} textAnchor="middle" fontSize="11" fill="rgba(255,255,255,0.92)" fontFamily="Georgia,serif" fontStyle="italic">{l}</text>
+        ));
+      })()}
+      {/* base shine */}
+      <ellipse cx="92" cy="148" rx="52" ry="5" fill="rgba(0,0,0,0.08)"/>
+      <text x="92" y="172" textAnchor="middle" fontSize="8" fill="#9A8878" fontFamily="Georgia,serif" letterSpacing="1.5">LITTLE AMOUR</text>
+    </svg>
+  );
+}
+
+function BookmarkMockup({ grad, phrase, size = 200 }) {
+  const [c1, c2] = grad || ["#2A1F4F", "#1A3050"];
+  const bw = 46, bh = 130, bx = 77, by = 30;
+  return (
+    <svg width={size} height={size} viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="bmg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={c1}/><stop offset="1" stopColor={c2}/></linearGradient>
+        <linearGradient id="bmg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FAF0E0"/><stop offset="1" stopColor="#EDD9C0"/></linearGradient>
+      </defs>
+      {/* shadow bookmarks behind */}
+      <rect x="88" y="36" width={bw} height={bh} rx="5" fill="#E8D9C5" opacity="0.6" transform="rotate(6 111 95)"/>
+      <rect x="66" y="34" width={bw} height={bh} rx="5" fill="#DDD0BE" opacity="0.5" transform="rotate(-5 89 95)"/>
+      {/* main bookmark */}
+      <rect x={bx} y={by} width={bw} height={bh} rx="5" fill="url(#bmg1)"/>
+      {/* ribbon notch at bottom */}
+      <polygon points={`${bx},${by+bh-16} ${bx+bw/2},${by+bh} ${bx+bw},${by+bh-16}`} fill={c2}/>
+      {/* top accent line */}
+      <rect x={bx} y={by} width={bw} height="8" rx="5" fill="rgba(255,255,255,0.18)"/>
+      {/* moon */}
+      <text x={bx + bw/2} y={by + 28} textAnchor="middle" fontSize="16" dominantBaseline="middle">🌙</text>
+      {/* phrase */}
+      {(() => {
+        const words = phrase.split(" ");
+        const lines = []; let line = "";
+        words.forEach(w => { if ((line + " " + w).trim().length > 9) { lines.push(line.trim()); line = w; } else { line = (line + " " + w).trim(); }});
+        if (line) lines.push(line);
+        const startY = by + 52;
+        return lines.map((l, i) => (
+          <text key={i} x={bx + bw/2} y={startY + i * 13} textAnchor="middle" fontSize="9.5" fill="rgba(255,255,255,0.9)" fontFamily="Georgia,serif" fontStyle="italic">{l}</text>
+        ));
+      })()}
+      <text x={bx + bw/2} y={by + bh - 24} textAnchor="middle" fontSize="6.5" fill="rgba(255,255,255,0.6)" fontFamily="Georgia,serif" letterSpacing="1">L·A</text>
+    </svg>
+  );
+}
+
+/* ============================================================
    SAMPLE / DEMO PRODUCTS — shown when no Supabase products exist
-   These serve as branded examples for every book
    ============================================================ */
 function makeSamples(book) {
   const base = { book_id: book.id, status: "approved", sizes: ["One Size"] };
@@ -54,36 +176,33 @@ function makeSamples(book) {
       id: `sample-tote-${book.id}`,
       product_id: "tote-natural",
       product_label: "Tote Bag",
-      description: `Natural canvas tote printed with artwork from "${book.title}". Sturdy 6oz cotton. 15"×16" with 12" handles.`,
+      description: "Natural canvas tote, 6oz cotton. 15\"×16\" with 12\" handles. Screen-printed with your book's artwork.",
       sell_price: 28,
       base_price: 8.50,
       sizes: ["One Size"],
-      design_notes: "Front: book title + illustrated character. Back: Little Amour moon logo.",
-      emoji: "👜",
+      mockupType: "tote",
     },
     {
       ...base,
       id: `sample-mug-${book.id}`,
       product_id: "mug-11oz",
       product_label: "Ceramic Mug — 11oz",
-      description: `White ceramic mug with full-wrap illustration from "${book.title}". Dishwasher safe. Ships individually boxed.`,
+      description: "White ceramic mug, full-colour wrap print. Dishwasher safe. Ships individually boxed.",
       sell_price: 22,
       base_price: 7.00,
       sizes: ["11oz", "15oz"],
-      design_notes: "Wrap: book artwork + quote. Handle: accent color from cover.",
-      emoji: "☕",
+      mockupType: "mug",
     },
     {
       ...base,
       id: `sample-bookmark-${book.id}`,
       product_id: "bookmark-set",
-      product_label: "Bookmark Set (3-pack)",
-      description: `Set of 3 illustrated bookmarks from "${book.title}". Laminated 2"×7" card stock. Comes in a kraft paper sleeve.`,
+      product_label: "Bookmark Set — 3-pack",
+      description: "Three laminated 2\"×7\" bookmarks, each with a different quote from this book. Arrives in a kraft paper sleeve.",
       sell_price: 14,
       base_price: 3.50,
       sizes: ["Standard"],
-      design_notes: "Each bookmark features a different character moment from the book with a short quote.",
-      emoji: "🔖",
+      mockupType: "bookmark",
     },
   ];
 }
@@ -151,8 +270,11 @@ export function PODProductSection({ book, addToCart }) {
               className={"pod-card" + (isSelected ? " selected" : "")}
               onClick={() => setSelected(isSelected ? null : prod.id)}
             >
-              <div className="pod-card-img" style={{ background: `linear-gradient(160deg,${book.grad[0]},${book.grad[1]})` }}>
-                <span className="pod-card-emoji">{prod.emoji || PROD_EMOJI[prod.product_id] || "🎨"}</span>
+              <div className="pod-card-img">
+                {prod.mockupType === "tote"     && <ToteMockup     grad={book.grad} phrase={getPhrase(book.id, "tote")}     size={140} />}
+                {prod.mockupType === "mug"      && <MugMockup      grad={book.grad} phrase={getPhrase(book.id, "mug")}      size={140} />}
+                {prod.mockupType === "bookmark" && <BookmarkMockup grad={book.grad} phrase={getPhrase(book.id, "bookmark")} size={140} />}
+                {!prod.mockupType && <span className="pod-card-emoji">{PROD_EMOJI[prod.product_id] || "🎨"}</span>}
               </div>
               <div className="pod-card-body">
                 <p className="pod-card-label">{prod.product_label}</p>
@@ -747,7 +869,7 @@ const POD_CSS = `
 .pod-card { border:1.5px solid #ECD9C5; border-radius:14px; overflow:hidden; cursor:pointer; transition:box-shadow .15s,border-color .15s; background:#fff; text-align:left; }
 .pod-card:hover { box-shadow:0 4px 18px rgba(0,0,0,.08); }
 .pod-card.selected { border-color:#E2A857; box-shadow:0 0 0 2px rgba(226,168,87,.25); }
-.pod-card-img { height:96px; display:flex; align-items:center; justify-content:center; }
+.pod-card-img { height:140px; display:flex; align-items:center; justify-content:center; background:#FAF4EB; overflow:hidden; }
 .pod-card-emoji { font-size:36px; }
 .pod-card-body { padding:12px 14px 14px; }
 .pod-card-label { font-size:13.5px; font-weight:700; color:#131A30; margin-bottom:4px; }
@@ -873,3 +995,67 @@ const POD_CSS = `
 `;
 
 export default PODAdminDashboard;
+
+/* ============================================================
+   SHOP MERCH SECTION — standalone strip for the Shop page
+   Shows one tote + mug + bookmark using representative phrases
+   ============================================================ */
+const SHOP_SAMPLE_ITEMS = [
+  { id: "shop-tote",     type: "tote",     label: "Tote Bag",             price: 28,  earn: 12.52, phrase: "Brave stories, brave kids.",   grad: ["#2A1F4F", "#1A3050"] },
+  { id: "shop-mug",      type: "mug",      label: "Ceramic Mug — 11oz",   price: 22,  earn: 9.60,  phrase: "Home is who holds you.",        grad: ["#2D4A3E", "#1A3050"] },
+  { id: "shop-bookmark", type: "bookmark", label: "Bookmark Set — 3-pack", price: 14, earn: 6.82,  phrase: "Truth told gently.",            grad: ["#4A2D3E", "#2A1F4F"] },
+];
+
+export function ShopMerchSection({ go }) {
+  return (
+    <section className="shop-merch-strip">
+      <style>{`
+        .shop-merch-strip { padding: 56px 0 64px; background: #FAF4EB; border-top: 1.5px solid #ECD9C5; }
+        .shop-merch-inner { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+        .shop-merch-header { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+        .shop-merch-heading { font-family: 'Fraunces', Georgia, serif; font-size: 26px; font-weight: 560; color: #131A30; margin: 0; }
+        .shop-merch-sub { font-size: 14.5px; color: #5E5468; max-width: 48ch; line-height: 1.6; margin: 6px 0 0; }
+        .shop-merch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+        @media (max-width: 660px) { .shop-merch-grid { grid-template-columns: 1fr; } }
+        .shop-merch-card { background: #fff; border: 1.5px solid #ECD9C5; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; }
+        .shop-merch-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,.07); border-color: #E2A857; transition: all .15s; }
+        .shop-merch-visual { display: flex; align-items: center; justify-content: center; height: 170px; background: #FAF4EB; }
+        .shop-merch-body { padding: 16px 18px 20px; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .shop-merch-label { font-size: 14.5px; font-weight: 700; color: #131A30; }
+        .shop-merch-price { font-size: 17px; font-weight: 700; color: #E2A857; }
+        .shop-merch-earn  { font-size: 12px; color: #27ae60; font-weight: 600; }
+        .shop-merch-note  { font-size: 12px; color: #9A8878; margin-top: 6px; line-height: 1.5; }
+        .shop-merch-cta   { font-size: 13px; font-weight: 700; color: #6E5572; border: none; background: none; cursor: pointer; padding: 0; margin-top: 8px; text-align: left; }
+        .shop-merch-cta:hover { text-decoration: underline; }
+      `}</style>
+      <div className="shop-merch-inner">
+        <div className="shop-merch-header">
+          <div>
+            <p className="eyebrow plum" style={{ marginBottom: 4 }}>Take the story with you</p>
+            <h2 className="shop-merch-heading">Little Amour Merch</h2>
+            <p className="shop-merch-sub">Illustrated merchandise printed fresh for each order. Every purchase sends author earnings home.</p>
+          </div>
+          <button className="btn-line dark" onClick={() => go("books")}>Shop all books →</button>
+        </div>
+        <div className="shop-merch-grid">
+          {SHOP_SAMPLE_ITEMS.map(item => (
+            <div key={item.id} className="shop-merch-card">
+              <div className="shop-merch-visual">
+                {item.type === "tote"     && <ToteMockup     grad={item.grad} phrase={item.phrase} size={160} />}
+                {item.type === "mug"      && <MugMockup      grad={item.grad} phrase={item.phrase} size={160} />}
+                {item.type === "bookmark" && <BookmarkMockup grad={item.grad} phrase={item.phrase} size={160} />}
+              </div>
+              <div className="shop-merch-body">
+                <p className="shop-merch-label">{item.label}</p>
+                <p className="shop-merch-price">${item.price.toFixed(2)}</p>
+                <p className="shop-merch-earn">✦ ~${item.earn.toFixed(2)} to the author</p>
+                <p className="shop-merch-note">Printed on demand. Ships in 5–10 days. Each design is unique to the book you love.</p>
+                <button className="shop-merch-cta" onClick={() => go("books")}>Find on a book page →</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
