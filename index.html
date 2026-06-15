@@ -4,8 +4,71 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Little Amour Books — Gentle children's books by survivor mothers, about hard things." />
-    <title>Little Amour Books</title>
+    <meta name="theme-color" content="#131A30" />
+
+    <!-- Primary SEO -->
+    <title>Little Amour Books — Gentle Children's Books for Hard Family Moments</title>
+    <meta name="description" content="Gentle illustrated children's books written by survivor mothers for hard family moments — divorce, court days, big feelings, and new beginnings. 75% of every sale goes to the author." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://littleamour.com" />
+
+    <!-- Open Graph -->
+    <meta property="og:site_name" content="Little Amour Books" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://littleamour.com" />
+    <meta property="og:title" content="Little Amour Books — Gentle Children's Books for Hard Family Moments" />
+    <meta property="og:description" content="Gentle illustrated children's books written by survivor mothers. 75% of every sale goes back to the author." />
+    <meta property="og:image" content="https://littleamour.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter / X card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Little Amour Books — Gentle Children's Books for Hard Family Moments" />
+    <meta name="twitter:description" content="Gentle illustrated children's books written by survivor mothers. 75% of every sale goes back to the author." />
+    <meta name="twitter:image" content="https://littleamour.com/og-image.png" />
+
+    <!-- Organization schema (site-wide, always present) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Little Amour Books",
+      "url": "https://littleamour.com",
+      "logo": "https://littleamour.com/favicon.svg",
+      "description": "A children's book publisher run by and for survivor mothers. We publish gentle illustrated picture books about hard family moments.",
+      "foundingDate": "2024",
+      "sameAs": [],
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "customer support",
+        "url": "https://littleamour.com/contact"
+      }
+    }
+    </script>
+
+    <!-- WebSite schema with sitelinks searchbox hint -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Little Amour Books",
+      "url": "https://littleamour.com",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://littleamour.com/books?q={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   </head>
   <body>
     <div id="root"></div>

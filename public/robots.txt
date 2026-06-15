@@ -1,0 +1,22 @@
+User-agent: *
+Allow: /
+
+# Disallow admin and private routes
+Disallow: /admin
+Disallow: /api/
+Disallow: /signin
+
+# Disallow policy pages from indexing (they're not SEO targets)
+Disallow: /policy-terms
+Disallow: /policy-refund
+Disallow: /policy-license
+Disallow: /policy-shipping
+Disallow: /policy-privacy
+Disallow: /policy-website-terms
+Disallow: /policy-dmca
+Disallow: /policy-accessibility
+Disallow: /policy-reviews
+Disallow: /policy-preorder
+Disallow: /policy-refund-form
+
+Sitemap: https://littleamour.com/sitemap.xml

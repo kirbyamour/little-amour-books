@@ -12,6 +12,7 @@ import {
 import { RefundRequestForm } from "./RefundRequestForm";
 import PublishingModule from "./Publishing";
 import { PODProductSection, ShopMerchSection } from "./PODSystem";
+import { SEOHead, TopicPage, NotFoundPage, bookSchema } from "./SEOSystem";
 
 /* ============================================================
    LITTLE AMOUR BOOKS — rev 2
@@ -2748,21 +2749,91 @@ export default function App() {
     go("thanks");
   };
 
+  // Resolve current book for book pages (used for SEO)
+  const currentBook = route.page === "book" ? (BOOKS.find((b) => b.id === route.id) || BOOKS[0]) : null;
+
   let page = null;
-  if (route.page === "home") page = <HomePage go={go} />;
-  else if (route.page === "store") page = <><StoreLanding go={go} books={BOOKS} /><ShopMerchSection go={go} /></>;
-  else if (route.page === "books") page = <BooksShop go={go} books={BOOKS} />;
-  else if (route.page === "packs") page = <PacksPage go={go} books={BOOKS} />;
+  if (route.page === "home") page = (
+    <>
+      <SEOHead
+        title="Gentle Children's Books for Hard Family Moments"
+        description="Illustrated children's books written by survivor mothers for families navigating hard moments — divorce, court days, big feelings, and new beginnings. 75% of every sale goes to the author."
+        canonical="https://littleamour.com"
+        schema={{ "@context":"https://schema.org","@type":"WebPage","name":"Little Amour Books","url":"https://littleamour.com","description":"Gentle children's books for hard family moments, written by survivor mothers." }}
+      />
+      <HomePage go={go} />
+    </>
+  );
+  else if (route.page === "store") page = (
+    <>
+      <SEOHead
+        title="Shop Children's Books"
+        description="Browse our full collection of gentle illustrated children's books for hard family moments. Written by survivor mothers. Ships worldwide."
+        canonical="https://littleamour.com/shop"
+      />
+      <StoreLanding go={go} books={BOOKS} /><ShopMerchSection go={go} />
+    </>
+  );
+  else if (route.page === "books") page = (
+    <>
+      <SEOHead
+        title="All Children's Books"
+        description="Every book in the Little Amour collection — gentle illustrated picture books for families navigating hard moments. Browse by topic or age."
+        canonical="https://littleamour.com/books"
+      />
+      <BooksShop go={go} books={BOOKS} />
+    </>
+  );
+  else if (route.page === "packs") page = (
+    <>
+      <SEOHead
+        title="Book Packs — Save on Sets"
+        description="Curated book packs for hard family moments. Save when you buy a set. Each pack includes books matched by emotional theme."
+        canonical="https://littleamour.com/packs"
+      />
+      <PacksPage go={go} books={BOOKS} />
+    </>
+  );
   else if (route.page === "pack") page = <PackPage packId={route.id} go={go} books={BOOKS} addToCart={addToCart} />;
-  else if (route.page === "book") page = <BookPage book={BOOKS.find((b) => b.id === route.id) || BOOKS[0]} go={go} toast={toast} addToCart={addToCart} />;
+  else if (route.page === "book" && currentBook) page = (
+    <>
+      <SEOHead
+        title={currentBook.title}
+        description={currentBook.tagline || currentBook.adult || `A gentle illustrated children's book by ${currentBook.authorName}. For families navigating ${currentBook.theme || "hard moments"}.`}
+        canonical={`https://littleamour.com/book/${currentBook.id}`}
+        ogType="book"
+        schema={bookSchema(currentBook)}
+      />
+      <BookPage book={currentBook} go={go} toast={toast} addToCart={addToCart} />
+    </>
+  );
   else if (route.page === "cart") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} />;
   else if (route.page === "checkout") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} />;
   else if (route.page === "thanks") page = <ThanksPage order={order} go={go} />;
-  else if (route.page === "authors") page = <AuthorsPage go={go} />;
+  else if (route.page === "authors") page = (
+    <>
+      <SEOHead
+        title="Our Authors — Survivor Mothers"
+        description="Meet the survivor mothers who write Little Amour Books. Every author writes from lived experience. 75% of every sale goes back to them."
+        canonical="https://littleamour.com/authors"
+      />
+      <AuthorsPage go={go} />
+    </>
+  );
   else if (route.page === "author") page = <AuthorPage author={AUTHORS[route.id] || AUTHORS.kirby} go={go} toast={toast} />;
-  else if (route.page === "write") page = <WritePage go={go} />;
+  else if (route.page === "write") page = (
+    <>
+      <SEOHead
+        title="Write and Publish Your Story"
+        description="Survivor mothers publish their own illustrated children's books with Little Amour Books. No writing experience needed. Keep 75% of every sale. Start with Amora, our AI studio."
+        canonical="https://littleamour.com/write"
+      />
+      <WritePage go={go} />
+    </>
+  );
   else if (route.page === "apply") page = <ApplyPage />;
   else if (route.page === "legal") page = <AuthorLegalPage go={go} />;
+  else if (route.page === "topic") page = <TopicPage slug={route.id} books={BOOKS} go={go} />;
   else if (route.page === "policy-terms") page = <TermsOfSalePage go={go} />;
   else if (route.page === "policy-refund") page = <RefundPolicyPage go={go} />;
   else if (route.page === "policy-license") page = <DigitalLicensePage go={go} />;
@@ -2781,6 +2852,7 @@ export default function App() {
     else if (account?.isKirby) page = <KirbyStudio go={go} onSignOut={() => { setAccount(null); go("home"); }} />;
     else page = <DashboardPage go={go} author={account} onSignOut={() => { setAccount(null); go("home"); }} />;
   }
+  else page = <NotFoundPage go={go} />;
 
   const NAV = [
     ["home", "Home"],

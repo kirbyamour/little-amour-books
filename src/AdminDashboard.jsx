@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { SEODashboard } from "./SEOSystem";
 import { supabase } from "./supabaseClient";
 
 /* ============================================================
@@ -1350,6 +1351,7 @@ const NAV_GROUPS = [
   ]},
   { label: "Growth", items: [
     { id: "sponsorcrm", label: "Sponsors" },
+    { id: "seo", label: "SEO" },
   ]},
   { label: "Finance", items: [
     { id: "goal", label: "$100K Goal" },
@@ -2570,7 +2572,6 @@ export default function AdminDashboard({ onBack }) {
   const renderTab = () => {
     switch (tab) {
       case "overview":     return <Overview onNavigate={setTab} />;
-      case "orders":       return <Orders />;
       case "subscribers":  return <EmailSubscribers />;
       case "analytics":    return <Analytics />;
       case "books":        return <BooksManager />;
@@ -2584,6 +2585,7 @@ export default function AdminDashboard({ onBack }) {
       case "lachemails":    return <LaunchEmails />;
       case "authoraccounts": return <AuthorAccounts />;
       case "sponsorcrm":   return <SponsorCRM />;
+      case "seo":          return <SEODashboard />;
       case "goal":         return <GoalDashboard />;
       case "simulator":    return <Simulator />;
       case "pricing":      return <PricingSettings />;

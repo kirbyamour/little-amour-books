@@ -1,16 +1,12 @@
 {
   "rewrites": [
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/robots.txt",  "destination": "/robots.txt" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "functions": {
-    "api/image.js": {
-      "maxDuration": 60
-    },
-    "api/chat.js": {
-      "maxDuration": 60
-    }
+    "api/image.js":   { "maxDuration": 60 },
+    "api/chat.js":    { "maxDuration": 60 },
+    "api/sitemap.js": { "maxDuration": 10 }
   }
 }
