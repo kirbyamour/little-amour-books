@@ -1689,7 +1689,7 @@ function SignInPage({ onSignIn }) {
 }
 
 const DASH_SEED = {
-  author: author?.name || "Author",
+  author: "Author",
   books: [
     { id: "bluebag", title: "The Night We Packed the Blue Bag", status: "approved", statusLabel: "Approved — launching soon", earnings: 0 },
     { id: "lighthouse", title: "The Lighthouse Keeps Its Promise", status: "changes", statusLabel: "Changes requested", earnings: 0 },
@@ -1720,7 +1720,7 @@ function DashboardPage({ go, author, onSignOut }) {
         <div className="row-between">
           <div>
             <p className="eyebrow plum">Author studio</p>
-            <h2>Good morning, {DASH_SEED.author.split(" ")[0]}.</h2>
+            <h2>Good morning, {(author?.name || "Author").split(" ")[0]}.</h2>
           </div>
           <button className="btn-text" onClick={onSignOut}>Sign out</button>
         </div>
