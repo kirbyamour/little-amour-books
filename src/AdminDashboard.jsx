@@ -1352,6 +1352,7 @@ const NAV_GROUPS = [
   { label: "Growth", items: [
     { id: "sponsorcrm", label: "Sponsors" },
     { id: "seo", label: "SEO" },
+    { id: "coupons", label: "Coupons" },
   ]},
   { label: "Finance", items: [
     { id: "goal", label: "$100K Goal" },
@@ -2507,6 +2508,107 @@ Return ONLY valid JSON with these keys:
   );
 }
 
+
+/* ============================================================
+   COUPON MANAGER — Admin view for launch invite codes
+   ============================================================ */
+const LAUNCH_CODES = [
+  "LAUNCH-AK9XF","LAUNCH-122ZA","LAUNCH-WFAF4","LAUNCH-H9WDB","LAUNCH-W0PNP",
+  "LAUNCH-MERHA","LAUNCH-BRKOA","LAUNCH-N2TOZ","LAUNCH-UI66C","LAUNCH-TTDQ3",
+];
+
+function CouponManager() {
+  const [coupons, setCoupons] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase.from("launch_coupons").select("*").order("created_at");
+    setCoupons(data || []);
+    setLoading(false);
+  }
+
+  const available = coupons.filter(c => !c.used_at).length;
+  const used = coupons.filter(c => c.used_at).length;
+
+  const SQL = `-- Run once in Supabase SQL editor:
+create table if not exists launch_coupons (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,
+  created_for text,
+  used_by_email text,
+  used_at timestamptz,
+  fee_waived boolean default true,
+  created_at timestamptz default now()
+);
+
+alter table author_applications
+  add column if not exists coupon_code text,
+  add column if not exists fee_waived boolean default false;
+
+insert into launch_coupons (code) values
+  ('LAUNCH-AK9XF'),('LAUNCH-122ZA'),('LAUNCH-WFAF4'),('LAUNCH-H9WDB'),('LAUNCH-W0PNP'),
+  ('LAUNCH-MERHA'),('LAUNCH-BRKOA'),('LAUNCH-N2TOZ'),('LAUNCH-UI66C'),('LAUNCH-TTDQ3')
+on conflict (code) do nothing;`;
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ display:"flex", gap:12, marginBottom:24, flexWrap:"wrap" }}>
+        <div style={{ background:"#EEF9EE", border:"1px solid #A8D5A2", borderRadius:12, padding:"14px 20px", flex:1, minWidth:140 }}>
+          <p style={{ fontSize:13, color:"#27ae60", fontWeight:700, marginBottom:4 }}>Available</p>
+          <p style={{ fontSize:32, fontWeight:800, color:"#27ae60", margin:0 }}>{coupons.length ? available : "—"}</p>
+        </div>
+        <div style={{ background:"#FFF6E8", border:"1px solid #F0D09A", borderRadius:12, padding:"14px 20px", flex:1, minWidth:140 }}>
+          <p style={{ fontSize:13, color:"#E2A857", fontWeight:700, marginBottom:4 }}>Used</p>
+          <p style={{ fontSize:32, fontWeight:800, color:"#E2A857", margin:0 }}>{coupons.length ? used : "—"}</p>
+        </div>
+        <div style={{ background:"#F4EADC", border:"1px solid #ECD9C5", borderRadius:12, padding:"14px 20px", flex:1, minWidth:140 }}>
+          <p style={{ fontSize:13, color:"#5E5468", fontWeight:700, marginBottom:4 }}>Total</p>
+          <p style={{ fontSize:32, fontWeight:800, color:"#131A30", margin:0 }}>{coupons.length || 10}</p>
+        </div>
+      </div>
+
+      {loading ? <p style={{ color:"#888", fontSize:14 }}>Loading…</p> : !coupons.length ? (
+        <div style={{ background:"#FAF4EB", border:"1px solid #ECD9C5", borderRadius:14, padding:24 }}>
+          <p style={{ fontWeight:700, marginBottom:8 }}>Run the SQL below in Supabase to activate coupons</p>
+          <pre style={{ fontSize:12, background:"#fff", border:"1px solid #ECD9C5", borderRadius:9, padding:14, overflowX:"auto", whiteSpace:"pre", lineHeight:1.6 }}>{SQL}</pre>
+        </div>
+      ) : (
+        <div style={{ border:"1px solid #ECD9C5", borderRadius:14, overflow:"hidden" }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 2fr", background:"#FAF4EB", padding:"10px 16px", fontSize:12, fontWeight:700, color:"#5E5468", textTransform:"uppercase", letterSpacing:".08em", borderBottom:"1px solid #ECD9C5" }}>
+            <span>Code</span><span>Status</span><span>Used by</span>
+          </div>
+          {coupons.map(c => (
+            <div key={c.id} style={{ display:"grid", gridTemplateColumns:"1fr 1fr 2fr", padding:"12px 16px", borderBottom:"1px solid #ECD9C5", fontSize:14, alignItems:"center" }}>
+              <span style={{ fontFamily:"monospace", fontWeight:700, color:"#131A30" }}>{c.code}</span>
+              <span style={{ color: c.used_at ? "#E2A857" : "#27ae60", fontWeight:700, fontSize:12 }}>
+                {c.used_at ? "Used" : "Available"}
+              </span>
+              <span style={{ color:"#5E5468", fontSize:13 }}>
+                {c.used_by_email || "—"}
+                {c.used_at && <span style={{ color:"#bbb", marginLeft:6, fontSize:11 }}>{new Date(c.used_at).toLocaleDateString()}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!coupons.length && (
+        <div style={{ marginTop:20, background:"#FFF6E8", border:"1px solid #F0D09A", borderRadius:12, padding:16 }}>
+          <p style={{ fontWeight:700, fontSize:14, marginBottom:6 }}>Your 10 launch codes (share one per invited author):</p>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+            {LAUNCH_CODES.map(c => (
+              <span key={c} style={{ fontFamily:"monospace", background:"#fff", border:"1px solid #ECD9C5", borderRadius:8, padding:"5px 12px", fontSize:13 }}>{c}</span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard({ onBack }) {
   const [unlocked, setUnlocked] = useState(false);
   const [passcode, setPasscode] = useState("");
@@ -2586,6 +2688,7 @@ export default function AdminDashboard({ onBack }) {
       case "authoraccounts": return <AuthorAccounts />;
       case "sponsorcrm":   return <SponsorCRM />;
       case "seo":          return <SEODashboard />;
+      case "coupons":      return <CouponManager />;
       case "goal":         return <GoalDashboard />;
       case "simulator":    return <Simulator />;
       case "pricing":      return <PricingSettings />;

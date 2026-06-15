@@ -65,6 +65,7 @@ const BOOKS = [...CORE_BOOKS, ...PLACEHOLDER_BOOKS];
 const AUTHORS = {
   kirby: {
     id: "kirby", name: "Kirby Amour", grad: ["#4A3B6E", "#8A6A8E"],
+    photo: "https://images.squarespace-cdn.com/content/v1/56e68ac62fe13155d522ff00/1593855419098-1P6SQ1HEXVGR9ZFIQQGK/kirby_2.jpg?format=750w",
     look: { skin: "#C68863", hair: "#352523", top: "#5A4570", style: "waves" },
     tagline: "Survivor mama, storyteller, and founder of Little Amour Books.",
     intro: "Kirby creates gentle children's books for families navigating hard things — family court, big changes, fear, and rebuilding — with the belief that children deserve stories that tell the truth with care.",
@@ -179,7 +180,11 @@ function Motif({ kind, size }) {
 
 /* Illustrated author portrait — privacy-first, storybook style */
 function Portrait({ author, size = 96 }) {
-  const { look, grad, id } = author;
+  const { look, grad, id, photo } = author;
+  if (photo) return (
+    <img src={photo} alt={author.name} width={size} height={size}
+      style={{ borderRadius: "50%", objectFit: "cover", objectPosition: "center top", display: "block" }} />
+  );
   const uid = "pt-" + id;
   return (
     <svg width={size} height={size} viewBox="0 0 120 120" role="img" aria-label={"Illustrated portrait of " + author.name}>
@@ -1374,6 +1379,7 @@ function ApplyPage() {
     theme: "", suggestThemeName: "", suggestThemeDesc: "",
     issue: "", feeling: "", avoid: "",
     instagram: "", tiktok: "", facebook: "",
+    couponCode: "",
     consent: false,
     // Publishing agreement initials
     init1: "", init2: "", init3: "", init4: "", init5: "", init6: "",
@@ -1381,6 +1387,17 @@ function ApplyPage() {
   });
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState("");
+  const [couponStatus, setCouponStatus] = useState(null);
+
+  const checkCoupon = async () => {
+    const code = form.couponCode.trim().toUpperCase();
+    if (!code) return;
+    setCouponStatus("checking");
+    const { data } = await supabase.from("launch_coupons").select("*").eq("code", code).single();
+    if (!data) { setCouponStatus("invalid"); return; }
+    if (data.used_at) { setCouponStatus("used"); return; }
+    setCouponStatus("valid");
+  };
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
 
   const submit = async () => {
@@ -1411,6 +1428,9 @@ function ApplyPage() {
     ].filter(Boolean).join(" | ") || null;
 
     try {
+      const feeWaived = couponStatus === "valid";
+      const couponCode = form.couponCode.trim().toUpperCase() || null;
+
       await supabase.from("author_applications").insert({
         name: form.name.trim(),
         email: form.email.trim(),
@@ -1422,6 +1442,8 @@ function ApplyPage() {
         book_idea: form.issue.trim() || null,
         admin_note: contactNote,
         status: "new",
+        coupon_code: couponCode,
+        fee_waived: feeWaived,
         consent_initials: JSON.stringify({
           i1: form.init1.trim(), i2: form.init2.trim(), i3: form.init3.trim(),
           i4: form.init4.trim(), i5: form.init5.trim(), i6: form.init6.trim(),
@@ -1429,6 +1451,11 @@ function ApplyPage() {
         agreement_accepted: true,
         agreement_accepted_at: new Date().toISOString(),
       });
+
+      // Mark coupon as used
+      if (feeWaived && couponCode) {
+        await supabase.from("launch_coupons").update({ used_by_email: form.email.trim(), used_at: new Date().toISOString() }).eq("code", couponCode);
+      }
     } catch (e) { /* non-fatal */ }
 
     if (form.theme === "suggest-new" && form.suggestThemeName.trim()) {
@@ -1622,6 +1649,27 @@ function ApplyPage() {
                 I have read and I accept the <strong>Little Amour Books Author Publishing Agreement</strong>. I understand that the completed Little Amour Books edition of my book will remain in the Little Amour Books catalog and cannot be removed or taken elsewhere except as provided in the Agreement.
               </span>
             </label>
+          </div>
+
+          {/* ── LAUNCH COUPON ── */}
+          <div className="apply-coupon-wrap">
+            <label className="apply-label">Launch invitation code <span className="apply-opt">(optional)</span></label>
+            <p className="apply-coupon-hint">If Kirby sent you a personal invite code, enter it here to waive the registration fee.</p>
+            <div className="apply-coupon-row">
+              <input
+                className={"apply-coupon-input" + (couponStatus === "valid" ? " valid" : couponStatus === "invalid" || couponStatus === "used" ? " invalid" : "")}
+                type="text"
+                placeholder="LAUNCH-XXXXX"
+                value={form.couponCode}
+                onChange={e => { set("couponCode")(e); setCouponStatus(null); }}
+                onBlur={checkCoupon}
+              />
+              <button type="button" className="apply-coupon-btn" onClick={checkCoupon}>Apply</button>
+            </div>
+            {couponStatus === "valid"   && <p className="apply-coupon-ok">✓ Code accepted — registration fee waived for you.</p>}
+            {couponStatus === "invalid" && <p className="apply-coupon-err">That code wasn't recognised. Try again or leave it blank.</p>}
+            {couponStatus === "used"    && <p className="apply-coupon-err">This code has already been used.</p>}
+            {couponStatus === "checking"&& <p className="apply-coupon-checking">Checking…</p>}
           </div>
 
           <label className="check" style={{ marginTop: 16 }}>
@@ -3901,6 +3949,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   border-top: 1px solid #eee; padding-top: 14px; margin-top: 4px;
 }
 .apply-footer-note p { font-size: 0.82rem; color: #999; margin: 0 0 4px; }
+.apply-coupon-wrap { margin-top: 28px; padding: 18px; background: #F0EAF8; border: 1.5px solid #D4C4E4; border-radius: 14px; }
+.apply-coupon-hint { font-size: 13px; color: #6E5572; margin: 4px 0 12px; line-height: 1.5; }
+.apply-coupon-row { display: flex; gap: 8px; align-items: center; }
+.apply-coupon-input { flex: 1; border: 1.5px solid #C4B4D4; border-radius: 9px; padding: 10px 13px; font-size: 14px; font-family: monospace; text-transform: uppercase; background: #fff; }
+.apply-coupon-input.valid { border-color: #27ae60; background: #F0FBF0; }
+.apply-coupon-input.invalid { border-color: #c0392b; }
+.apply-coupon-btn { background: #6E5572; color: #fff; border: none; border-radius: 9px; padding: 10px 18px; font-size: 14px; font-weight: 700; cursor: pointer; }
+.apply-coupon-ok { font-size: 13px; color: #27ae60; font-weight: 700; margin-top: 8px; }
+.apply-coupon-err { font-size: 13px; color: #c0392b; margin-top: 8px; }
+.apply-coupon-checking { font-size: 13px; color: #888; margin-top: 8px; }
 @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
 
 ${STORE_CSS}
