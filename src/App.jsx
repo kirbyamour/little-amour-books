@@ -682,9 +682,10 @@ function CheckoutPage({ book, go, onComplete }) {
 }
 
 /* ---- Cart Page ---- */
-function CartPage({ cart, removeFromCart, go, onCheckout }) {
+function CartPage({ cart, removeFromCart, go, onCheckout, checkoutLoading }) {
   const [gifts, setGifts] = useState({});
   const [agreed, setAgreed] = useState(false);
+  const [email, setEmail] = useState("");
   const giftTotal = GIFTS.reduce((s, g) => s + (gifts[g.id] ? g.amt : 0), 0);
   const itemTotal = cart.reduce((s, c) => s + c.price, 0);
   const total = itemTotal + giftTotal;
@@ -755,15 +756,22 @@ function CartPage({ cart, removeFromCart, go, onCheckout }) {
               <span>I agree to the <button className="link" onClick={() => go("policy-terms")}>Terms of Sale</button>, <button className="link" onClick={() => go("policy-refund")}>Refund Policy</button>, and <button className="link" onClick={() => go("policy-license")}>Digital Product License</button>. I understand digital downloads are final sale once delivered.</span>
             </label>
 
+            <input
+              type="email"
+              placeholder="Email for your receipt"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1.5px solid #ECD9C5", fontSize: 15, marginTop: 12, boxSizing: "border-box", fontFamily: "inherit" }}
+            />
             <button
               className="btn-gold full"
-              disabled={!agreed}
-              style={{ opacity: agreed ? 1 : 0.5, marginTop: 16 }}
-              onClick={() => onCheckout(cart, gifts, total)}
+              disabled={!agreed || checkoutLoading}
+              style={{ opacity: (agreed && !checkoutLoading) ? 1 : 0.5, marginTop: 12 }}
+              onClick={() => onCheckout(cart, gifts, total, email)}
             >
-              Complete purchase — ${total.toFixed(2)}
+              {checkoutLoading ? "Redirecting to checkout…" : `Complete purchase — $${total.toFixed(2)}`}
             </button>
-            <p className="fine" style={{ marginTop: 12 }}>Secure checkout via Stripe at deployment. 75% of every direct sale goes to the author.</p>
+            <p className="fine" style={{ marginTop: 12 }}>Secure checkout via Stripe. 75% of every direct sale goes to the author.</p>
           </div>
 
           <div className="co-author">
@@ -786,24 +794,65 @@ function CartPage({ cart, removeFromCart, go, onCheckout }) {
 }
 
 function ThanksPage({ order, go }) {
-  if (!order) return null;
-  const items = order.items || [];
-  const giftAmt = Object.values(order.gifts || {}).filter(Boolean).length * 5; // approx
+  const [sessionData, setSessionData] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (sessionId) {
+      // Clean the URL without reloading
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    // Use order prop (demo) or session (Stripe)
+    if (!order && !sessionId) return;
+  }, []);
+
+  const items = order?.items || [];
+  const digitalItems = items.filter(i => i.type !== "merch");
+  const giftAmt = Object.values(order?.gifts || {}).filter(Boolean).length * 5;
+
+  if (!order && !window.location.search.includes("session_id")) return null;
+
   return (
     <section className="dusk page-top tall">
       <div className="wrap narrow center">
         <Moon size={44} />
-        <h2 className="light">Thank you. Here's what just happened.</h2>
+        <h2 className="light">Thank you. 💜</h2>
+        <p className="lead light" style={{ marginTop: 0 }}>A confirmation email is on its way to you.</p>
+
+        {digitalItems.length > 0 && (
+          <div className="thanks-card" style={{ marginBottom: 24 }}>
+            <p style={{ fontWeight: 700, borderBottom: "1px solid rgba(226,168,87,.3)", paddingBottom: 10, marginBottom: 10 }}>
+              <span>Your books are ready to read:</span>
+            </p>
+            {digitalItems.map(item => (
+              <p key={item.cartId || item.id} style={{ alignItems: "center" }}>
+                <button
+                  className="btn-text"
+                  style={{ color: "#E2A857", fontWeight: 700, textAlign: "left", padding: 0 }}
+                  onClick={() => go("book", item.id)}
+                >
+                  {item.title} →
+                </button>
+              </p>
+            ))}
+          </div>
+        )}
+
         <div className="thanks-card">
           {items.map(item => (
-            <p key={item.cartId}><span>{item.title} — to author (75%)</span><span>${(item.price * 0.75).toFixed(2)}</span></p>
+            <p key={item.cartId || item.id}>
+              <span>{item.title} — to author (75%)</span>
+              <span>${(item.price * 0.75).toFixed(2)}</span>
+            </p>
           ))}
           {giftAmt > 0 && <p><span>Your support gifts (100%)</span><span>${giftAmt.toFixed(2)}</span></p>}
-          <p><span>To the publisher — keeps the studio free</span><span>${(items.reduce((s,i)=>s+i.price,0)*0.25).toFixed(2)}</span></p>
+          <p><span>To the studio — keeps publishing free</span><span>${(items.reduce((s,i)=>s+i.price,0)*0.25).toFixed(2)}</span></p>
           <p className="t-total"><span>Children get braver words</span><span>priceless</span></p>
         </div>
-        <p className="lead light center-text">
-          {items.length === 1 ? items[0].title : `${items.length} books`} will be on their way once payments are live.
+
+        <p className="lead light center-text" style={{ marginTop: 20 }}>
           You didn't just buy a book — you helped a mother rebuild, in her own words.
         </p>
         <button className="btn-gold" onClick={() => go("books")}>Keep browsing</button>
@@ -2791,10 +2840,36 @@ export default function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToastMsg(""), 5200);
   };
-  const completeOrder = (items, gifts, total) => {
-    setOrder({ items, gifts, total });
-    clearCart();
-    go("thanks");
+  const [checkoutLoading, setCheckoutLoading] = React.useState(false);
+  const completeOrder = async (items, gifts, total, email) => {
+    // If no Stripe key configured, fall back to demo mode
+    const pubKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+    if (!pubKey) {
+      setOrder({ items, gifts, total });
+      clearCart();
+      go("thanks");
+      return;
+    }
+    setCheckoutLoading(true);
+    try {
+      const res = await fetch("/api/stripe-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items, email }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        clearCart();
+        window.location.href = data.url; // redirect to Stripe Checkout
+      } else {
+        toast("Checkout error: " + (data.error || "Unknown error"));
+      }
+    } catch (err) {
+      toast("Checkout failed. Please try again.");
+      console.error(err);
+    } finally {
+      setCheckoutLoading(false);
+    }
   };
 
   // Resolve current book for book pages (used for SEO)
@@ -2855,8 +2930,8 @@ export default function App() {
       <BookPage book={currentBook} go={go} toast={toast} addToCart={addToCart} />
     </>
   );
-  else if (route.page === "cart") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} />;
-  else if (route.page === "checkout") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} />;
+  else if (route.page === "cart") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} checkoutLoading={checkoutLoading} />;
+  else if (route.page === "checkout") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} checkoutLoading={checkoutLoading} />;
   else if (route.page === "thanks") page = <ThanksPage order={order} go={go} />;
   else if (route.page === "authors") page = (
     <>
