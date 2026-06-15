@@ -32,6 +32,7 @@ const POD_PROVIDER = {
     "pillow-18":        { id: "pillow-18",          label: "Throw Pillow — 18\"",    basePrice: 14.00, sellPrice: 42,   sizes: ["18\"×18\""] },
     "puzzle-500":       { id: "puzzle-500",         label: "Jigsaw Puzzle — 500pc",  basePrice: 16.50, sellPrice: 48,   sizes: ["500pc"] },
     "journal-softcover":{ id: "journal-softcover",  label: "Illustrated Journal",    basePrice: 9.00,  sellPrice: 32,   sizes: ["One Size"] },
+    "bookmark-set":     { id: "bookmark-set",      label: "Bookmark Set (3-pack)",  basePrice: 3.50,  sellPrice: 14,   sizes: ["Standard"] },
   },
 
   authorRevenue(sellPrice, basePrice) {
@@ -40,6 +41,52 @@ const POD_PROVIDER = {
     return { authorShare: profit * 0.75, platformShare: profit * 0.25 + platform, basePrice, platform, profit };
   },
 };
+
+/* ============================================================
+   SAMPLE / DEMO PRODUCTS — shown when no Supabase products exist
+   These serve as branded examples for every book
+   ============================================================ */
+function makeSamples(book) {
+  const base = { book_id: book.id, status: "approved", sizes: ["One Size"] };
+  return [
+    {
+      ...base,
+      id: `sample-tote-${book.id}`,
+      product_id: "tote-natural",
+      product_label: "Tote Bag",
+      description: `Natural canvas tote printed with artwork from "${book.title}". Sturdy 6oz cotton. 15"×16" with 12" handles.`,
+      sell_price: 28,
+      base_price: 8.50,
+      sizes: ["One Size"],
+      design_notes: "Front: book title + illustrated character. Back: Little Amour moon logo.",
+      emoji: "👜",
+    },
+    {
+      ...base,
+      id: `sample-mug-${book.id}`,
+      product_id: "mug-11oz",
+      product_label: "Ceramic Mug — 11oz",
+      description: `White ceramic mug with full-wrap illustration from "${book.title}". Dishwasher safe. Ships individually boxed.`,
+      sell_price: 22,
+      base_price: 7.00,
+      sizes: ["11oz", "15oz"],
+      design_notes: "Wrap: book artwork + quote. Handle: accent color from cover.",
+      emoji: "☕",
+    },
+    {
+      ...base,
+      id: `sample-bookmark-${book.id}`,
+      product_id: "bookmark-set",
+      product_label: "Bookmark Set (3-pack)",
+      description: `Set of 3 illustrated bookmarks from "${book.title}". Laminated 2"×7" card stock. Comes in a kraft paper sleeve.`,
+      sell_price: 14,
+      base_price: 3.50,
+      sizes: ["Standard"],
+      design_notes: "Each bookmark features a different character moment from the book with a short quote.",
+      emoji: "🔖",
+    },
+  ];
+}
 
 /* ============================================================
    POD PRODUCT SECTION — shown on BookPage below digital buy
@@ -59,7 +106,8 @@ export function PODProductSection({ book, addToCart }) {
         .eq("book_id", book.id)
         .eq("status", "approved")
         .order("created_at", { ascending: false });
-      setProducts(data || []);
+      // Fall back to sample products so the section always shows
+      setProducts(data?.length ? data : makeSamples(book));
       setLoading(false);
     }
     load();
@@ -104,7 +152,7 @@ export function PODProductSection({ book, addToCart }) {
               onClick={() => setSelected(isSelected ? null : prod.id)}
             >
               <div className="pod-card-img" style={{ background: `linear-gradient(160deg,${book.grad[0]},${book.grad[1]})` }}>
-                <span className="pod-card-emoji">{PROD_EMOJI[prod.product_id] || "🎨"}</span>
+                <span className="pod-card-emoji">{prod.emoji || PROD_EMOJI[prod.product_id] || "🎨"}</span>
               </div>
               <div className="pod-card-body">
                 <p className="pod-card-label">{prod.product_label}</p>
@@ -113,6 +161,7 @@ export function PODProductSection({ book, addToCart }) {
 
                 {isSelected && (
                   <div className="pod-card-detail">
+                    {prod.description && <p className="pod-card-desc">{prod.description}</p>}
                     {prod.sizes?.length > 1 && (
                       <div className="pod-size-row">
                         {prod.sizes.map(s => (
@@ -710,6 +759,7 @@ const POD_CSS = `
 .pod-size-btn.on { border-color:#E2A857; color:#E2A857; background:#FFF6E0; }
 .pod-add-btn { width:100%; background:#131A30; color:#fff; border:none; border-radius:999px; padding:9px 0; font-size:14px; font-weight:700; cursor:pointer; }
 .pod-disclaimer { font-size:12px; color:#aaa; margin-top:18px; line-height:1.6; }
+.pod-card-desc { font-size:12.5px; color:#5E5468; line-height:1.55; margin-bottom:10px; }
 .pod-disclaimer a { color:#6E5572; }
 
 /* --- Studio --- */

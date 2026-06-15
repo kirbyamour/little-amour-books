@@ -11,6 +11,7 @@ import {
 } from "./PolicyPages";
 import { RefundRequestForm } from "./RefundRequestForm";
 import PublishingModule from "./Publishing";
+import { PODProductSection } from "./PODSystem";
 
 /* ============================================================
    LITTLE AMOUR BOOKS — rev 2
@@ -606,6 +607,7 @@ function BookPage({ book, go, toast, addToCart }) {
             <p className="fine">75% of every direct sale goes to {book.authorName}. Created in our AI book studio with her story at the center, and reviewed for emotional safety before publication.</p>
           </div>
         </div>
+        <PODProductSection book={book} addToCart={addToCart} />
       </div>
     </section>
   );
