@@ -22,7 +22,7 @@ const P = {
    Swap printful/printify without changing components
    ============================================================ */
 const POD_PROVIDER = {
-  name: process.env.VITE_POD_PROVIDER || "printify",
+  name: "printify", // set VITE_POD_PROVIDER env var to override
   products: {
     "tote-natural":     { id: "tote-natural",     label: "Tote Bag (Natural)",     basePrice: 8.50,  sellPrice: 28,   sizes: ["One Size"] },
     "mug-11oz":         { id: "mug-11oz",          label: "Mug — 11oz",             basePrice: 7.00,  sellPrice: 22,   sizes: ["11oz"] },

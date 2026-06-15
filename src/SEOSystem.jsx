@@ -268,11 +268,23 @@ function ThemeLandingPage({ topicSlug, books, go }) {
         canonical={`${SITE}/topic/${topicSlug}`}
         schema={{
           "@context": "https://schema.org",
-          "@type": "CollectionPage",
-          "name": theme.title,
-          "description": theme.meta.description,
-          "url": `${SITE}/topic/${topicSlug}`,
-          "publisher": { "@type": "Organization", "name": SITE_NAME, "url": SITE },
+          "@graph": [
+            {
+              "@type": "CollectionPage",
+              "name": theme.title,
+              "description": theme.meta.description,
+              "url": `${SITE}/topic/${topicSlug}`,
+              "publisher": { "@type": "Organization", "name": SITE_NAME, "url": SITE },
+            },
+            ...(theme.faq?.length ? [{
+              "@type": "FAQPage",
+              "mainEntity": theme.faq.map(f => ({
+                "@type": "Question",
+                "name": f.q,
+                "acceptedAnswer": { "@type": "Answer", "text": f.a },
+              })),
+            }] : []),
+          ],
         }}
       />
       <section style={{ background: P.paper, minHeight: "100vh" }}>
@@ -329,16 +341,7 @@ function ThemeLandingPage({ topicSlug, books, go }) {
                   </details>
                 ))}
               </div>
-              {/* FAQ Schema */}
-              <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
-                "@context": "https://schema.org",
-                "@type": "FAQPage",
-                "mainEntity": theme.faq.map(f => ({
-                  "@type": "Question",
-                  "name": f.q,
-                  "acceptedAnswer": { "@type": "Answer", "text": f.a },
-                })),
-              }) }} />
+              {/* FAQ schema injected via SEOHead schema prop above */}
             </section>
           )}
 
