@@ -1740,6 +1740,49 @@ function ApplyPage() {
   );
 }
 
+
+/* ---- Author Persona Chooser (Kirby's admin shortcut) ---- */
+function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut }) {
+  const authors = [
+    { id: "kirby", name: "Kirby Amour", tagline: "Survivor mama, storyteller, and founder.", grad: ["#4A3B6E","#8A6A8E"], photo: AUTHORS.kirby.photo },
+    { id: "june",  name: "June Ellery",  tagline: "Former preschool teacher. Quiet courage.", grad: ["#6E3E50","#A4707E"], photo: null },
+    { id: "mara",  name: "Mara Voss",    tagline: "Writer, gardener, mother of two.", grad: ["#2E4A5E","#5E8A96"], photo: null },
+  ];
+  return (
+    <section className="morning page-top">
+      <div className="wrap">
+        <div className="row-between" style={{marginBottom:8}}>
+          <div>
+            <p className="eyebrow plum">Admin switcher</p>
+            <h2>Which author today?</h2>
+            <p className="lead" style={{marginTop:4}}>You're signed in as Kirby. Pick a dashboard to open, or go to your studio.</p>
+          </div>
+          <button className="btn-text" onClick={onSignOut}>{signOutLabel || "Sign out"}</button>
+        </div>
+
+        <div className="chooser-grid">
+          {authors.map(a => (
+            <button key={a.id} className="chooser-card" onClick={() => onPickAuthor(a)}>
+              {a.photo
+                ? <img src={a.photo} alt={a.name} className="chooser-avatar-img" />
+                : <div className="chooser-avatar" style={{background:`linear-gradient(135deg,${a.grad[0]},${a.grad[1]})`}}>
+                    {a.name[0]}
+                  </div>}
+              <p className="chooser-name">{a.name}</p>
+              <p className="chooser-tagline">{a.tagline}</p>
+            </button>
+          ))}
+          <button className="chooser-card chooser-admin" onClick={onPickAdmin}>
+            <div className="chooser-avatar" style={{background:"linear-gradient(135deg,#2D2D2D,#555)"}}>✦</div>
+            <p className="chooser-name">Admin Studio</p>
+            <p className="chooser-tagline">Book builder, AI studio, and settings.</p>
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ---------------- Sign in + author dashboard ---------------- */
 function SignInPage({ onSignIn }) {
   const [email, setEmail] = useState("");
@@ -1855,7 +1898,7 @@ function ProfilePhotoUpload({ author, onPhotoUpdate }) {
   );
 }
 
-function DashboardPage({ go, author, onSignOut }) {
+function DashboardPage({ go, author, onSignOut, signOutLabel }) {
   const [reply, setReply] = useState("");
   const [thread, setThread] = useState(DASH_SEED.feedback);
   const [currentAuthor, setCurrentAuthor] = React.useState(author);
@@ -2874,6 +2917,7 @@ function PageChat({ book, page, onClose, onApply }) {
 export default function App() {
   const [route, setRoute] = useState({ page: "home", id: null });
   const [account, setAccount] = useState(null);
+  const [persona, setPersona] = useState(null); // author Kirby is currently viewing as
   const [order, setOrder] = useState(null);
   const [cart, setCart] = useState([]);      // { cartId, type, id, title, price, authorName, grad, motif }
   const [toastMsg, setToastMsg] = useState("");
@@ -3027,8 +3071,16 @@ export default function App() {
   else if (route.page === "contact") page = <RefundRequestForm go={go} />;
   else if (route.page === "admin") return <AdminDashboard onBack={() => go("home")} />;
   else if (route.page === "signin") {
-    if (!account) page = <SignInPage onSignIn={(a) => setAccount(a)} />;
-    else if (account?.isKirby) page = <KirbyStudio go={go} onSignOut={() => { setAccount(null); go("home"); }} />;
+    if (!account) page = <SignInPage onSignIn={(a) => { setPersona(null); setAccount(a); }} />;
+    else if (account?.isKirby && !persona) page = <AuthorChooserPage
+        account={account}
+        onPickAuthor={(a) => setPersona({ id: a.id, name: a.name, email: account.email, photoUrl: a.photo || null, isKirby: false })}
+        onPickAdmin={() => setPersona("admin")}
+        onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
+    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
+    else if (account?.isKirby && persona) page = <DashboardPage go={go} author={persona}
+        onSignOut={() => setPersona(null)}
+        signOutLabel="← Back to switcher" />;
     else page = <DashboardPage go={go} author={account} onSignOut={() => { setAccount(null); go("home"); }} />;
   }
   else page = <NotFoundPage go={go} />;
@@ -3340,6 +3392,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .form .btn-line { align-self: flex-start; }
 
 /* dashboard */
+.chooser-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 18px; margin-top: 28px; }
+.chooser-card { background: #fff; border: 1.5px solid #EBDFCC; border-radius: 18px; padding: 28px 20px 22px; text-align: center; cursor: pointer; transition: box-shadow .15s, transform .15s; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.chooser-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,0.10); transform: translateY(-2px); }
+.chooser-avatar { width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 28px; font-weight: 700; flex-shrink: 0; }
+.chooser-avatar-img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #E5AC9F; }
+.chooser-name { font-weight: 700; font-size: 15px; color: var(--ink); }
+.chooser-tagline { font-size: 13px; color: var(--inkSoft); line-height: 1.4; }
+.chooser-admin .chooser-avatar { font-size: 22px; }
 .profile-photo-card { display: flex; align-items: center; gap: 20px; background: #fff; border: 1px solid #EBDFCC; border-radius: 16px; padding: 18px 22px; margin: 22px 0 4px; }
 .profile-photo-wrap { flex-shrink: 0; }
 .profile-photo-img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid #E5AC9F; }
