@@ -3054,11 +3054,56 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   const [checking, setChecking] = useState(false);
   const [chatPage, setChatPage] = useState(null);
   const [portraitBusy, setPortraitBusy] = useState({}); // character index -> true while painting
+  const [pgImgBusy, setPgImgBusy] = useState({}); // page id -> true while painting
+  const [pgImgErr, setPgImgErr] = useState({}); // page id -> error string
   const drag = useRef(null);
 
   const setPage = (id, patch) => setBook((b) => ({ ...b, pages: b.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   const addPage = () => setBook((b) => ({ ...b, pages: [...b.pages, { id: newId(), text: "", img: "" }] }));
   const removePage = (id) => setBook((b) => ({ ...b, pages: b.pages.filter((p) => p.id !== id) }));
+
+  // Generates (or regenerates, with optional author feedback) the illustration for ONE page,
+  // referencing the Character Bible and every other image already in the book for consistency.
+  // Returns true/false for real — callers must never report success unless this actually returns true.
+  const genPageImage = async (p, i, feedback) => {
+    if (pgImgBusy[p.id]) return false;
+    if (!p.text || !p.text.trim()) {
+      setPgImgErr((prev) => ({ ...prev, [p.id]: "Add this page's text first — Amora needs words to paint from." }));
+      return false;
+    }
+    setPgImgErr((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
+    setPgImgBusy((prev) => ({ ...prev, [p.id]: true }));
+    try {
+      const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
+      const charManifest = activeChars.length
+        ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+        : "(no named characters — environment/setting only)";
+      const seed = collection ? collection.seed : null;
+      let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
+      const existingImgs = book.pages.filter((pg) => pg.img && pg.id !== p.id).map((pg) => pg.img).slice(0, 3);
+      if (!book.derivedStyle && existingImgs.length) {
+        const derived = await deriveStyleFromImages(existingImgs);
+        if (derived) { styleGuide = derived; setBook((b) => ({ ...b, derivedStyle: derived })); }
+      }
+      // Only treat feedback as a revision note if there's already an image to revise —
+      // otherwise it's just the first-time request and the page text speaks for itself.
+      const sceneText = (feedback && p.img) ? `${p.text}\n\nRevision note from the author — apply this exact change: ${feedback}` : p.text;
+      const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum: i + 1 });
+      const imgRes = await fetch("/api/image", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+      });
+      const imgData = await imgRes.json();
+      if (imgData.error) { setPgImgErr((prev) => ({ ...prev, [p.id]: imgData.error })); return false; }
+      setPage(p.id, { img: imgData.url });
+      return true;
+    } catch (e) {
+      setPgImgErr((prev) => ({ ...prev, [p.id]: "Image generation failed — try again." }));
+      return false;
+    } finally {
+      setPgImgBusy((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
+    }
+  };
   const setChar = (i, patch) => setBook((b) => ({ ...b, characters: b.characters.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
   const addChar = () => setBook((b) => ({ ...b, characters: [...b.characters, { name: "New character", desc: "" }] }));
   const removeChar = (i) => setBook((b) => ({ ...b, characters: b.characters.filter((_, j) => j !== i) }));
@@ -3165,6 +3210,12 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                   </div>
                   {p.img ? <img src={p.img} alt={"Page " + (i + 1)} className="ed-page-img" /> : null}
                   <textarea rows={2} value={p.text} onChange={(e) => setPage(p.id, { text: e.target.value })} placeholder="Write this page, or build it with Amora." />
+                  <div className="ed-page-imgrow">
+                    <button className="btn-text soft" disabled={!!pgImgBusy[p.id]} onClick={() => genPageImage(p, i)}>
+                      {pgImgBusy[p.id] ? "painting…" : p.img ? "regenerate image" : "generate image"}
+                    </button>
+                    {pgImgErr[p.id] ? <span className="fine" style={{ color: "#9E4A44" }}>{pgImgErr[p.id]}</span> : null}
+                  </div>
                 </div>
               ))}
               <button className="btn-line dark" onClick={addPage}>+ Add a blank page</button>
@@ -3234,13 +3285,15 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
         )}
       </div>
 
-      {chatPage ? <PageChat book={book} page={chatPage} onClose={() => setChatPage(null)} onApply={(text) => { setPage(chatPage.id, { text }); }} /> : null}
+      {chatPage ? <PageChat book={book} page={chatPage} onClose={() => setChatPage(null)}
+        onApply={(text) => { setPage(chatPage.id, { text }); }}
+        onGenerateImage={(feedback) => genPageImage(chatPage, book.pages.findIndex((pg) => pg.id === chatPage.id), feedback)} /> : null}
     </section>
   );
 }
 
 /* ---------------- Tiny per-page Amora chat ---------------- */
-function PageChat({ book, page, onClose, onApply }) {
+function PageChat({ book, page, onClose, onApply, onGenerateImage }) {
   const idx = book.pages.findIndex((p) => p.id === page.id);
   const [msgs, setMsgs] = useState([{ role: "amora", text: `Let's polish page ${idx + 1} together. Want it softer, shorter, more magical, or truer to a character? Tell me — or ask me to rewrite it and I'll suggest a version you can accept.` }]);
   const [input, setInput] = useState("");
@@ -3249,17 +3302,35 @@ function PageChat({ book, page, onClose, onApply }) {
   const scroller = useRef(null);
   useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [msgs, busy]);
 
+  // Anything that reads as "generate/draw/paint THIS IMAGE" gets routed to the real
+  // image pipeline below — never to free-text chat, which has no way to actually paint
+  // anything and was previously just narrating fake "Done" messages.
+  const isImgReq = (t) => /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(t)
+    && /image|picture|illustrat|art\b|drawing/i.test(t);
+
   const send = async () => {
     const text = input.trim(); if (!text || busy) return;
     setMsgs((m) => [...m, { role: "user", text }]); setInput(""); setBusy(true);
     try {
-      const chars = book.characters.map((c) => `${c.name}: ${c.desc}`).join("\n");
-      const reply = await amora(
-        `Character Bible:\n${chars}\n\nThe current text of page ${idx + 1} is:\n"${page.text}"\n\nKirby says: "${text}"\n\nHelp with JUST this page. If you're suggesting new page text, put the exact suggested text on its own final line prefixed with PAGE: — under 40 words, consistent with the Character Bible. Otherwise just answer warmly. Keep it short.`
-      );
-      const m = reply.match(/PAGE:\s*([\s\S]+)$/);
-      if (m) { setDraft(m[1].trim().replace(/^"|"$/g, "")); setMsgs((x) => [...x, { role: "amora", text: reply.replace(/PAGE:[\s\S]+$/, "").trim() || "Here's a version to consider:" }]); }
-      else setMsgs((x) => [...x, { role: "amora", text: reply }]);
+      if (isImgReq(text) && onGenerateImage) {
+        if (!page.text || !page.text.trim()) {
+          setMsgs((x) => [...x, { role: "amora", text: "This page doesn't have any text yet — write it in the box above (or tell me what should happen here), then ask me to paint it." }]);
+        } else {
+          setMsgs((x) => [...x, { role: "amora", text: `Painting page ${idx + 1} now, locked to your Character Bible and the rest of the book's art…` }]);
+          const ok = await onGenerateImage(text);
+          setMsgs((x) => [...x, { role: "amora", text: ok
+            ? "Done — the image is on the page now. Tell me exactly what to change and I'll repaint it."
+            : "That didn't generate — check the page above for the reason, or just ask me again." }]);
+        }
+      } else {
+        const chars = book.characters.map((c) => `${c.name}: ${c.desc}`).join("\n");
+        const reply = await amora(
+          `Character Bible:\n${chars}\n\nThe current text of page ${idx + 1} is:\n"${page.text}"\n\nKirby says: "${text}"\n\nHelp with JUST this page's WORDS — you have no way to generate or place images from this chat, so never claim to have created, generated, or placed an image; if she wants art, tell her to use the "generate image" button under the page instead. If you're suggesting new page text, put the exact suggested text on its own final line prefixed with PAGE: — under 40 words, consistent with the Character Bible. Otherwise just answer warmly. Keep it short.`
+        );
+        const m = reply.match(/PAGE:\s*([\s\S]+)$/);
+        if (m) { setDraft(m[1].trim().replace(/^"|"$/g, "")); setMsgs((x) => [...x, { role: "amora", text: reply.replace(/PAGE:[\s\S]+$/, "").trim() || "Here's a version to consider:" }]); }
+        else setMsgs((x) => [...x, { role: "amora", text: reply }]);
+      }
     } catch (e) { setMsgs((x) => [...x, { role: "amora", text: "I slipped just now — try once more?" }]); }
     setBusy(false);
   };
@@ -3840,6 +3911,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .ed-page-head span { font-family: var(--display); font-size: 15px; color: ${P.mauve}; }
 .ed-page-img { width: 100%; max-height: 340px; object-fit: contain; border-radius: 8px; margin-bottom: 10px; background: ${P.paper}; display: block; }
 .ed-page textarea { width: 100%; font-family: var(--body); font-size: 15px; color: ${P.ink}; background: ${P.paper}; border: 1.5px solid #E9DCC8; border-radius: 8px; padding: 10px 12px; resize: vertical; }
+.ed-page-imgrow { display: flex; align-items: baseline; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
 .ai-notes { background: ${P.paperWarm}; border-left: 4px solid ${P.gold}; border-radius: 12px; padding: 16px 18px; margin-top: 16px; font-size: 14.5px; white-space: pre-wrap; line-height: 1.6; }
 .st-rev { background: #F4E5C8; color: ${P.goldDeep}; }
 @media (max-width: 940px) { .ed-grid { grid-template-columns: 1fr; } }
