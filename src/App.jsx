@@ -2153,6 +2153,8 @@ function seedDraftBooksFor(authorKey) {
     collectionId: null,
     characters: [],
     styleGuide: "",
+    bibleLocked: false,
+    scriptApproved: false,
     pages: [],
     seedTagline: b.tagline,
     seedSummary: b.child,
@@ -2338,6 +2340,8 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
         id, title: "Untitled book", status: "draft", earnings: 0, collectionId: collId || null,
         characters: coll ? coll.characters.map((c) => ({ ...c })) : [],
         styleGuide: coll ? coll.styleGuide : "",
+        bibleLocked: false,
+        scriptApproved: false,
         pages: [],
       }],
     }));
@@ -2353,7 +2357,7 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
 
   const startWithCharacters = (chars) => {
     const id = "b" + Date.now();
-    setData((d) => ({ ...d, books: [...d.books, { id, title: "Untitled book", status: "draft", earnings: 0, characters: chars.map((c) => ({ ...c })), pages: [] }] }));
+    setData((d) => ({ ...d, books: [...d.books, { id, title: "Untitled book", status: "draft", earnings: 0, characters: chars.map((c) => ({ ...c })), bibleLocked: false, scriptApproved: false, pages: [] }] }));
     setOpenId(id);
     setView("build");
   };
@@ -2620,6 +2624,13 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         // Detect save-to-bible request
         const isSaveBible = text.toLowerCase().includes("save") && (text.toLowerCase().includes("character") || text.toLowerCase().includes("bible"));
 
+        // Detect "create/build the character bible" requests — these get a real structured
+        // draft written straight from the conversation, instead of indirectly asking the
+        // model to "parse" whatever Amora's last reply happened to be (which invents
+        // nonsense characters if that reply wasn't actually a character sheet).
+        const isBuildBible = !isSaveBible && !isMultiPageReq && /character|bible|cast/i.test(text)
+          && /creat|build|writ|generat|make|start|set up|come up with/i.test(text);
+
         // Detect "make the Character Bible match the art already on the pages" request —
         // no fresh image attached, but the book already has generated/uploaded page art to look at.
         const isSyncCharsFromPages = !isMultiPageReq && /character|bible/i.test(text)
@@ -2642,6 +2653,12 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
               push("amora", "I had trouble reading the characters off those pages just now — could you try again, or tell me directly what's changed about how they look?");
             }
           }
+
+        } else if (isMultiPageReq && !book.bibleLocked) {
+          push("amora", "Let's lock in your Character Bible and art style first — open the Characters tab, fill everyone in (and the book's style & feel), then tap \"Lock Character Bible.\" Once that's locked, every page I paint will actually match.");
+
+        } else if (isMultiPageReq && !book.scriptApproved) {
+          push("amora", "Your Bible's locked — good. Now let's finish the full script before any art: write out the pages you want, then use \"Approve script & paint all pages\" in the Page Editor. I'll paint everything in one matching pass right after, instead of page by page.");
 
         } else if (isMultiPageReq) {
           const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
@@ -2685,6 +2702,12 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           } else {
             push("amora", `I saved the text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")}, but the art didn't generate for any of them — give it another go and I'll try again.`);
           }
+
+        } else if (isImageReq && !book.bibleLocked) {
+          push("amora", "Let's lock in your Character Bible and art style first — open the Characters tab, fill everyone in (and the book's style & feel), then tap \"Lock Character Bible.\" Once that's locked, every page I paint will actually match.");
+
+        } else if (isImageReq && !book.scriptApproved) {
+          push("amora", "Your Bible's locked — good. Now let's finish the full script before any art: write out the pages you want, then use \"Approve script & paint all pages\" in the Page Editor. I'll paint everything in one matching pass right after, instead of page by page.");
 
         } else if (isImageReq) {
           const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
@@ -2745,6 +2768,33 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             } else throw new Error("no chars");
           } catch {
             push("amora", "I wasn't quite sure how to parse those — could you copy the character descriptions into the Character Bible fields in the editor and I'll keep them consistent from there?");
+          }
+
+        } else if (isBuildBible) {
+          push("amora", "Let's build your Character Bible from scratch — give me a second to pull together what we've talked about…");
+          const draftRaw = await amora(
+            `The author wants a Character Bible drafted for their picture book "${book.title}".
+
+Conversation so far:
+${convo}
+
+Look ONLY at what the author has actually told you about characters in this conversation (names, appearance, personality, role in the story). Do NOT invent characters, names, or traits that were never mentioned or implied — if the conversation doesn't contain enough real character information yet, return an empty array. Never pad the result with generic or made-up filler just to have something to show.
+
+Return ONLY JSON: {"characters":[{"name":"...","desc":"full visual + emotional description including clothing, palette, personality"}], "enough": true|false}
+"enough" should be false if there isn't yet real character detail in the conversation to build from.`,
+            AMORA_SYS + " STRUCTURED MODE: output valid JSON only. Never hallucinate characters that weren't actually discussed.", 1500
+          );
+          try {
+            const draft = parseLoose(draftRaw);
+            const chars = Array.isArray(draft.characters) ? draft.characters.filter((c) => c && c.name && c.desc) : [];
+            if (draft.enough && chars.length) {
+              setBook((b) => ({ ...b, characters: [...b.characters.filter((c) => !chars.find((nc) => nc.name === c.name)), ...chars] }));
+              push("amora", `Here's a first pass at your Character Bible: ${chars.map((c) => c.name).join(", ")}. I've added them to the Characters tab — take a look, tweak anything that's off, then we'll lock it in before painting any pages.`);
+            } else {
+              push("amora", "I don't have enough real detail yet to build actual characters — I'd rather leave it blank than make something up. Tell me who's in this book: names, what they look like, how they act, and I'll draft proper entries from that.");
+            }
+          } catch (e) {
+            push("amora", "I don't have enough real detail yet to build actual characters — I'd rather leave it blank than make something up. Tell me who's in this book: names, what they look like, how they act, and I'll draft proper entries from that.");
           }
 
         } else {
@@ -3052,11 +3102,26 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   const [tab, setTab] = useState("pages");
   const [report, setReport] = useState(null);
   const [checking, setChecking] = useState(false);
-  const [chatPage, setChatPage] = useState(null);
   const [portraitBusy, setPortraitBusy] = useState({}); // character index -> true while painting
   const [pgImgBusy, setPgImgBusy] = useState({}); // page id -> true while painting
   const [pgImgErr, setPgImgErr] = useState({}); // page id -> error string
+  const [portraitErr, setPortraitErr] = useState({}); // character index -> error string
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchNote, setBatchNote] = useState("");
   const drag = useRef(null);
+
+  // Bible-lock + script-approval gates. Locking is a real workflow state now, not just
+  // prompt language — nothing paints until characters + style are filled in and locked,
+  // and no batch art runs until the full script (every page's text) is approved.
+  const charsOk = book.characters.length > 0 && book.characters.every((c) => c.name && c.name.trim() && c.desc && c.desc.trim());
+  const styleOk = !!(book.styleGuide && book.styleGuide.trim());
+  const bibleReady = charsOk && styleOk;
+  const bibleLocked = !!book.bibleLocked;
+  const scriptApproved = !!book.scriptApproved;
+  const hasScript = book.pages.length > 0 && book.pages.every((p) => p.text && p.text.trim());
+
+  const lockBible = () => { if (bibleReady) setBook((b) => ({ ...b, bibleLocked: true })); };
+  const unlockBible = () => setBook((b) => ({ ...b, bibleLocked: false, scriptApproved: false }));
 
   const setPage = (id, patch) => setBook((b) => ({ ...b, pages: b.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   const addPage = () => setBook((b) => ({ ...b, pages: [...b.pages, { id: newId(), text: "", img: "" }] }));
@@ -3065,7 +3130,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   // Generates (or regenerates, with optional author feedback) the illustration for ONE page,
   // referencing the Character Bible and every other image already in the book for consistency.
   // Returns true/false for real — callers must never report success unless this actually returns true.
-  const genPageImage = async (p, i, feedback) => {
+  const paintPage = async (p, i, feedback) => {
     if (pgImgBusy[p.id]) return false;
     if (!p.text || !p.text.trim()) {
       setPgImgErr((prev) => ({ ...prev, [p.id]: "Add this page's text first — Amora needs words to paint from." }));
@@ -3104,6 +3169,38 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       setPgImgBusy((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
     }
   };
+
+  // Public, gated entry point — every page-painting call in the UI goes through this,
+  // never paintPage directly, so the lock/approval workflow can't be bypassed.
+  const genPageImage = async (p, i, feedback) => {
+    if (!bibleLocked) {
+      setPgImgErr((prev) => ({ ...prev, [p.id]: "Lock the Character Bible (Characters tab) before painting any pages." }));
+      return false;
+    }
+    if (!scriptApproved) {
+      setPgImgErr((prev) => ({ ...prev, [p.id]: "Finish and approve the full script first — use \"Approve script & paint all pages\" below." }));
+      return false;
+    }
+    return paintPage(p, i, feedback);
+  };
+
+  // Batch action: once every page has text and the author explicitly approves, paint
+  // every page's art in one consistent pass — same Bible, same derived style, correct order.
+  const approveAndPaintAll = async () => {
+    if (!bibleLocked || !hasScript || batchBusy) return;
+    setBatchBusy(true);
+    setBook((b) => ({ ...b, scriptApproved: true }));
+    setBatchNote(`Painting ${book.pages.length} pages…`);
+    let done = 0, failed = 0;
+    for (let i = 0; i < book.pages.length; i++) {
+      const p = book.pages[i];
+      setBatchNote(`Painting page ${i + 1} of ${book.pages.length}…`);
+      const ok = await paintPage(p, i);
+      if (ok) done++; else failed++;
+    }
+    setBatchNote(`Done — ${done} page${done === 1 ? "" : "s"} painted${failed ? `, ${failed} need a retry from the page editor` : ""}.`);
+    setBatchBusy(false);
+  };
   const setChar = (i, patch) => setBook((b) => ({ ...b, characters: b.characters.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
   const addChar = () => setBook((b) => ({ ...b, characters: [...b.characters, { name: "New character", desc: "" }] }));
   const removeChar = (i) => setBook((b) => ({ ...b, characters: b.characters.filter((_, j) => j !== i) }));
@@ -3115,20 +3212,28 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
     const c = book.characters[i];
     if (!c) return;
     setPortraitBusy((b) => ({ ...b, [i]: true }));
+    setPortraitErr((prev) => { const n = { ...prev }; delete n[i]; return n; });
     try {
       const styleGuide = collection?.styleGuide || book.derivedStyle || book.styleGuide || "";
       const url = await genCharacterPortrait(c, styleGuide, collection?.seed || null);
       setChar(i, { img: url });
-    } catch (e) { /* leave portrait as-is, author can retry */ }
+    } catch (e) {
+      // Record the failure so the lazy-fill effect below moves on to other characters
+      // instead of retrying this same one forever (the actual cause of portraits never
+      // showing for some characters — it wasn't generation failing, it was nothing else
+      // ever getting a turn).
+      setPortraitErr((prev) => ({ ...prev, [i]: (e && e.message) || "Portrait generation failed." }));
+    }
     setPortraitBusy((b) => { const n = { ...b }; delete n[i]; return n; });
   };
   // Lazily fill in any character missing a portrait while the Characters tab is open, one at a time.
+  // Skips characters that already failed this session so one stuck character can't block the rest.
   useEffect(() => {
     if (tab !== "bible") return;
     for (let i = 0; i < book.characters.length; i++) {
-      if (!book.characters[i].img && !portraitBusy[i]) { regenChar(i); return; }
+      if (!book.characters[i].img && !portraitBusy[i] && !portraitErr[i]) { regenChar(i); return; }
     }
-  }, [tab, book.characters, portraitBusy]);
+  }, [tab, book.characters, portraitBusy, portraitErr]);
 
   const onDrop = (id) => {
     const from = drag.current, to = id;
@@ -3195,7 +3300,21 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
         {tab === "pages" ? (
           <div className="ed-grid">
             <div>
-              <p className="fine" style={{ marginTop: 0 }}>Drag pages by the handle to reorder. Tap “Amora” on any page for a tiny chat about just that page.</p>
+              <div className={`lockbanner${bibleLocked ? " ok" : ""}${scriptApproved ? " done" : ""}`}>
+                {!bibleLocked ? (
+                  <p>① Lock your Character Bible (Characters tab) before writing or painting pages — that's what keeps everyone looking the same throughout.</p>
+                ) : !scriptApproved ? (
+                  <p>② Bible's locked. Write every page's text below, then approve the full script — Amora paints all the art in one matching pass right after, in the correct order.</p>
+                ) : (
+                  <p>✓ Bible locked, script approved. Art is painted — use “regenerate image” on any page for a touch-up.</p>
+                )}
+              </div>
+              {bibleLocked && !scriptApproved ? (
+                <button className="btn-gold full" style={{ marginBottom: 14 }} disabled={!hasScript || batchBusy} onClick={approveAndPaintAll}>
+                  {batchBusy ? (batchNote || "Painting…") : hasScript ? "Approve script & paint all pages" : "Write text for every page first"}
+                </button>
+              ) : null}
+              <p className="fine" style={{ marginTop: 0 }}>Drag pages by the handle to reorder. Each page has its own Amora chat right below it.</p>
               {book.pages.map((p, i) => (
                 <div key={p.id} className="ed-page" draggable
                   onDragStart={() => (drag.current = p.id)}
@@ -3204,18 +3323,20 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                   <div className="ed-page-head">
                     <span className="drag-handle" title="Drag to reorder">⠿ Page {i + 1}</span>
                     <span>
-                      <button className="mini-amora" onClick={() => setChatPage(p)}><MoonMark size={12} /> Amora</button>
                       {book.pages.length > 1 ? <button className="btn-text soft" onClick={() => removePage(p.id)}>remove</button> : null}
                     </span>
                   </div>
                   {p.img ? <img src={p.img} alt={"Page " + (i + 1)} className="ed-page-img" /> : null}
-                  <textarea rows={2} value={p.text} onChange={(e) => setPage(p.id, { text: e.target.value })} placeholder="Write this page, or build it with Amora." />
+                  <textarea rows={2} value={p.text} onChange={(e) => setPage(p.id, { text: e.target.value })} placeholder="Write this page, or build it with Amora below." />
                   <div className="ed-page-imgrow">
-                    <button className="btn-text soft" disabled={!!pgImgBusy[p.id]} onClick={() => genPageImage(p, i)}>
+                    <button className="btn-text soft" disabled={!!pgImgBusy[p.id] || !bibleLocked || !scriptApproved} onClick={() => genPageImage(p, i)}>
                       {pgImgBusy[p.id] ? "painting…" : p.img ? "regenerate image" : "generate image"}
                     </button>
                     {pgImgErr[p.id] ? <span className="fine" style={{ color: "#9E4A44" }}>{pgImgErr[p.id]}</span> : null}
                   </div>
+                  <PageChat book={book} page={p}
+                    onApply={(text) => setPage(p.id, { text })}
+                    onGenerateImage={(feedback) => genPageImage(p, i, feedback)} />
                 </div>
               ))}
               <button className="btn-line dark" onClick={addPage}>+ Add a blank page</button>
@@ -3262,38 +3383,50 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
           </div>
         ) : (
           <div className="bible">
-            <p className="fine" style={{ marginTop: 0 }}>This is your Character Bible — the locked descriptions that keep everyone looking and feeling the same on every page. The consistency check measures the whole book against it, and you can start a brand-new book reusing these exact characters from your book list.</p>
+            <p className="fine" style={{ marginTop: 0 }}>This is your Character Bible — the locked descriptions that keep everyone looking and feeling the same on every page. Lock it in once everyone and the style are filled in, before you write or paint any pages. The consistency check measures the whole book against it, and you can start a brand-new book reusing these exact characters from your book list.</p>
+
+            <div className="biblelock">
+              <label className="fine" style={{ display: "block", marginBottom: 6, fontWeight: 700 }}>Book style & feel</label>
+              <textarea rows={2} value={book.styleGuide || ""} disabled={bibleLocked}
+                onChange={(e) => setBook((b) => ({ ...b, styleGuide: e.target.value }))}
+                placeholder="e.g. soft watercolor, warm muted palette, gentle rounded shapes — the visual feel every page should share." />
+              {bibleLocked ? (
+                <button className="btn-line dark" style={{ marginTop: 10 }} onClick={unlockBible}>Unlock to make changes</button>
+              ) : (
+                <button className="btn-gold" style={{ marginTop: 10 }} disabled={!bibleReady} onClick={lockBible}>
+                  {bibleReady ? "Lock Character Bible" : "Fill in every character + the style above to lock"}
+                </button>
+              )}
+            </div>
+
             {book.characters.map((c, i) => (
               <div key={i} className="char-row">
                 <div className="char-row-id">
                   <div className="coll-portrait" style={{ width: 56, height: 56 }} title={c.name}>
                     {c.img ? <img src={c.img} alt={c.name} /> : <span className="coll-portrait-fallback">{portraitBusy[i] ? "…" : (c.name || "?").charAt(0)}</span>}
                   </div>
-                  <input className="char-name" value={c.name} onChange={(e) => setChar(i, { name: e.target.value })} />
+                  <input className="char-name" disabled={bibleLocked} value={c.name} onChange={(e) => setChar(i, { name: e.target.value })} />
                 </div>
-                <textarea rows={3} value={c.desc} onChange={(e) => setChar(i, { desc: e.target.value })} placeholder="Appearance, clothing, props, personality — everything that must stay the same." />
+                <textarea rows={3} disabled={bibleLocked} value={c.desc} onChange={(e) => setChar(i, { desc: e.target.value })} placeholder="Appearance, clothing, props, personality — everything that must stay the same." />
                 <div className="char-row-actions">
                   <button className="btn-text soft" disabled={!!portraitBusy[i]} onClick={() => regenChar(i)}>
                     {portraitBusy[i] ? "painting…" : c.img ? "regenerate portrait" : "generate portrait"}
                   </button>
-                  <button className="btn-text soft" onClick={() => removeChar(i)}>remove</button>
+                  {portraitErr[i] ? <span className="fine" style={{ color: "#9E4A44" }}>{portraitErr[i]}</span> : null}
+                  {!bibleLocked ? <button className="btn-text soft" onClick={() => removeChar(i)}>remove</button> : null}
                 </div>
               </div>
             ))}
-            <button className="btn-line dark" onClick={addChar}>+ Add a character</button>
+            {!bibleLocked ? <button className="btn-line dark" onClick={addChar}>+ Add a character</button> : null}
           </div>
         )}
       </div>
-
-      {chatPage ? <PageChat book={book} page={chatPage} onClose={() => setChatPage(null)}
-        onApply={(text) => { setPage(chatPage.id, { text }); }}
-        onGenerateImage={(feedback) => genPageImage(chatPage, book.pages.findIndex((pg) => pg.id === chatPage.id), feedback)} /> : null}
     </section>
   );
 }
 
 /* ---------------- Tiny per-page Amora chat ---------------- */
-function PageChat({ book, page, onClose, onApply, onGenerateImage }) {
+function PageChat({ book, page, onApply, onGenerateImage }) {
   const idx = book.pages.findIndex((p) => p.id === page.id);
   const [msgs, setMsgs] = useState([{ role: "amora", text: `Let's polish page ${idx + 1} together. Want it softer, shorter, more magical, or truer to a character? Tell me — or ask me to rewrite it and I'll suggest a version you can accept.` }]);
   const [input, setInput] = useState("");
@@ -3336,24 +3469,22 @@ function PageChat({ book, page, onClose, onApply, onGenerateImage }) {
   };
 
   return (
-    <div className="pagechat-overlay" onClick={onClose}>
-      <div className="pagechat" onClick={(e) => e.stopPropagation()}>
-        <div className="pc-head"><span><MoonMark size={16} color="#FFF9F0" /> Amora · page {idx + 1}</span><button onClick={onClose}>Done</button></div>
-        <div className="pc-scroll" ref={scroller}>
-          {msgs.map((m, i) => <div key={i} className={"abubble " + m.role}>{m.text.split("\n").map((l, j) => l ? <p key={j}>{l}</p> : null)}</div>)}
-          {busy ? <div className="abubble amora"><p className="typing">thinking<i>.</i><i>.</i><i>.</i></p></div> : null}
-          {draft ? (
-            <div className="pc-draft">
-              <p className="pc-draft-label">Suggested page text</p>
-              <p>{draft}</p>
-              <button className="btn-gold" onClick={() => { onApply(draft); setDraft(null); setMsgs((x) => [...x, { role: "amora", text: "Done — I've placed it on the page. You can keep editing anytime." }]); }}>Use this</button>
-            </div>
-          ) : null}
-        </div>
-        <div className="pc-bar">
-          <textarea rows={1} placeholder="Ask Amora about this page…" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
-          <button className="btn-gold" disabled={busy || !input.trim()} onClick={send}>Send</button>
-        </div>
+    <div className="pagechat-inline">
+      <div className="pc-head"><span><MoonMark size={14} color="#FFF9F0" /> Amora · page {idx + 1}</span></div>
+      <div className="pc-scroll pc-scroll-inline" ref={scroller}>
+        {msgs.map((m, i) => <div key={i} className={"abubble " + m.role}>{m.text.split("\n").map((l, j) => l ? <p key={j}>{l}</p> : null)}</div>)}
+        {busy ? <div className="abubble amora"><p className="typing">thinking<i>.</i><i>.</i><i>.</i></p></div> : null}
+        {draft ? (
+          <div className="pc-draft">
+            <p className="pc-draft-label">Suggested page text</p>
+            <p>{draft}</p>
+            <button className="btn-gold" onClick={() => { onApply(draft); setDraft(null); setMsgs((x) => [...x, { role: "amora", text: "Done — I've placed it on the page. You can keep editing anytime." }]); }}>Use this</button>
+          </div>
+        ) : null}
+      </div>
+      <div className="pc-bar">
+        <textarea rows={1} placeholder="Ask Amora about this page…" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
+        <button className="btn-gold" disabled={busy || !input.trim()} onClick={send}>Send</button>
       </div>
     </div>
   );
@@ -3984,6 +4115,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .pc-draft p { font-size: 15px; margin-bottom: 10px; }
 .pc-bar { display: flex; gap: 10px; padding: 13px 16px; border-top: 1px solid #EBDFCC; align-items: flex-end; }
 .pc-bar textarea { flex: 1; font-family: var(--body); font-size: 14.5px; border: 1.5px solid #E3D3BC; border-radius: 12px; padding: 11px 13px; background: ${P.cream}; resize: none; }
+
+.lockbanner { background: #FDF3DF; border: 1.5px solid ${P.gold}; border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; font-size: 14px; color: ${P.goldDeep}; font-weight: 600; }
+.lockbanner.ok { background: #F1F6EC; border-color: ${P.sage}; color: #4D6B3C; }
+.lockbanner.ok.done { background: #EAF3E4; }
+.biblelock { background: ${P.paperWarm}; border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; }
+.biblelock textarea { width: 100%; font-family: var(--body); font-size: 14.5px; border: 1.5px solid #E3D3BC; border-radius: 10px; padding: 10px 12px; background: ${P.cream}; resize: vertical; }
+.pagechat-inline { background: ${P.paperWarm}; border-radius: 14px; margin-top: 10px; overflow: hidden; display: flex; flex-direction: column; max-height: 360px; }
+.pagechat-inline .pc-head { background: ${P.night}; color: ${P.cream}; padding: 9px 14px; }
+.pc-scroll-inline { max-height: 220px; padding: 12px; }
 
 @media (max-width: 640px) { .char-row { grid-template-columns: 1fr; } }
 
