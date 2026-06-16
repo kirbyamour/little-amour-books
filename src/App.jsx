@@ -1742,7 +1742,7 @@ function ApplyPage() {
 
 
 /* ---- Author Persona Chooser (Kirby's admin shortcut) ---- */
-function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut }) {
+function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut, go }) {
   const authors = [
     { id: "kirby", name: "Kirby Amour", tagline: "Survivor mama, storyteller, and founder.", grad: ["#4A3B6E","#8A6A8E"], photo: AUTHORS.kirby.photo },
     { id: "june",  name: "June Ellery",  tagline: "Former preschool teacher. Quiet courage.", grad: ["#6E3E50","#A4707E"], photo: null },
@@ -1774,10 +1774,18 @@ function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut }) {
           ))}
           <button className="chooser-card chooser-admin" onClick={onPickAdmin}>
             <div className="chooser-avatar" style={{background:"linear-gradient(135deg,#2D2D2D,#555)"}}>✦</div>
-            <p className="chooser-name">Admin Studio</p>
-            <p className="chooser-tagline">Book builder, AI studio, and settings.</p>
+            <p className="chooser-name">My Studio</p>
+            <p className="chooser-tagline">Your own book builder, AI studio, and settings.</p>
           </button>
         </div>
+
+        <button
+          className="btn-text"
+          style={{ marginTop: 28 }}
+          onClick={() => go("admin")}
+        >
+          Open the full business admin platform (orders, pricing, SEO) →
+        </button>
       </div>
     </section>
   );
@@ -3121,6 +3129,7 @@ export default function App() {
     if (!account) page = <SignInPage onSignIn={(a) => { setPersona(null); setAccount(a); }} />;
     else if (account?.isKirby && !persona) page = <AuthorChooserPage
         account={account}
+        go={go}
         onPickAuthor={(a) => setPersona({ id: a.id, name: a.name, email: account.email, photoUrl: a.photo || null, isKirby: false })}
         onPickAdmin={() => setPersona("admin")}
         onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
