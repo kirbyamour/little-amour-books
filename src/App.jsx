@@ -2037,6 +2037,29 @@ function parseLoose(text) {
   return JSON.parse(t.slice(a, b + 1));
 }
 
+async function genCharacterPortrait(character, styleGuide, seed) {
+  const prompt = [
+    `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
+    ``,
+    `Create a single character reference portrait — one character only, shown clearly from the chest up, on a simple plain background with no scene or props beyond what's needed to show them.`,
+    ``,
+    `CHARACTER: ${character.name} — ${character.desc}`,
+    ``,
+    `CONSISTENCY RULES: This image locks how ${character.name} looks in every future page — exact face, hair, skin tone, and clothing must be reusable as a reference.`,
+  ].join("\n");
+  const negative_prompt = [
+    "photo realistic", "3d render", "multiple characters", "text", "watermark",
+    "cartoon", "anime", "adult content", "violence", "scary imagery",
+  ].join(", ");
+  const res = await fetch("/api/image", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, seed, negative_prompt }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.url;
+}
+
 const KIRBY_SEED = {
   gifts: 0,
   collections: [
@@ -2092,6 +2115,7 @@ function KirbyStudio({ go, onSignOut, account }) {
   const [view, setView] = useState("list"); // list | build | edit | publish
   const [pickingCollection, setPickingCollection] = useState(false); // collection picker modal
   const [savedFlash, setSavedFlash] = useState(false);
+  const [portraitBusy, setPortraitBusy] = useState({}); // "collId:charIndex" -> true while generating
 
   useEffect(() => {
     (async () => {
@@ -2125,6 +2149,31 @@ function KirbyStudio({ go, onSignOut, account }) {
 
   const collections = data.collections || [];
   const setCollections = (patch) => setData((d) => ({ ...d, collections: typeof patch === "function" ? patch(d.collections || []) : patch }));
+
+  // Lazily fill in missing character reference portraits, one at a time, and save once generated.
+  useEffect(() => {
+    if (!loaded) return;
+    for (const c of collections) {
+      for (let i = 0; i < (c.characters || []).length; i++) {
+        const ch = c.characters[i];
+        const key = c.id + ":" + i;
+        if (!ch.img && !portraitBusy[key]) {
+          setPortraitBusy((b) => ({ ...b, [key]: true }));
+          genCharacterPortrait(ch, c.styleGuide, c.seed)
+            .then((url) => {
+              setCollections((cs) => cs.map((cc) =>
+                cc.id === c.id
+                  ? { ...cc, characters: cc.characters.map((cch, ci) => (ci === i ? { ...cch, img: url } : cch)) }
+                  : cc
+              ));
+            })
+            .catch(() => {})
+            .finally(() => setPortraitBusy((b) => { const n = { ...b }; delete n[key]; return n; }));
+          return; // generate one character at a time
+        }
+      }
+    }
+  }, [loaded, collections, portraitBusy]);
 
   const createBookWithCollection = (collId) => {
     const coll = collections.find((c) => c.id === collId);
@@ -2236,8 +2285,22 @@ function KirbyStudio({ go, onSignOut, account }) {
                       if (window.confirm("Delete this collection?")) setCollections((cs) => cs.filter((x) => x.id !== c.id));
                     }}>delete</button>
                   </div>
+                  <div className="coll-portraits">
+                    {c.characters.map((ch, i) => (
+                      <div key={i} className="coll-portrait" title={ch.name}>
+                        {ch.img ? (
+                          <img src={ch.img} alt={ch.name} />
+                        ) : (
+                          <span className="coll-portrait-fallback">{portraitBusy[c.id + ":" + i] ? "…" : ch.name.charAt(0)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                   <p className="fine" style={{ margin: "4px 0 6px" }}>{c.characters.map((ch) => ch.name).join(" · ")}</p>
                   {c.styleGuide ? <p className="fine coll-style">{c.styleGuide}</p> : null}
+                  <button className="btn-text" style={{ marginTop: 4 }} onClick={() => createBookWithCollection(c.id)}>
+                    Start a book with these characters →
+                  </button>
                 </div>
               ))}
               <h3 className="bd-h" style={{ marginTop: 18 }}>Earnings</h3>
@@ -3475,6 +3538,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .coll-pick-new { border-style: dashed; }
 /* Collection cards on dashboard */
 .coll-card { background: ${P.cream}; border: 1px solid #EBDFCC; border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+.coll-portraits { display: flex; gap: 8px; margin: 6px 0; }
+.coll-portrait { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; background: #EBDFCC; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.coll-portrait img { width: 100%; height: 100%; object-fit: cover; }
+.coll-portrait-fallback { font-family: var(--display); font-size: 15px; color: #8a7a5c; }
 .coll-card-head { display: flex; justify-content: space-between; align-items: center; }
 .coll-card-head strong { font-family: var(--display); font-size: 15px; }
 .coll-style { opacity: 0.7; font-style: italic; }
