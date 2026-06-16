@@ -2243,15 +2243,16 @@ function KirbyStudio({ go, onSignOut }) {
     const activeColl = collections.find((c) => c.id === book?.collectionId) || null;
     return <AmoraBuild book={book} setBook={setBook} collection={activeColl} savedFlash={savedFlash}
       onGoEditor={(tab) => { setView("edit"); }}
+      onPublish={() => setView("publish")}
       onBack={() => setView("list")} />;
   }
 
   /* ---------------- BOOK EDITOR ---------------- */
-  return <BookEditor book={book} setBook={setBook} onBack={() => setView("list")} onSignOut={onSignOut} onAmora={() => setView("build")} savedFlash={savedFlash} />;
+  return <BookEditor book={book} setBook={setBook} onBack={() => setView("list")} onSignOut={onSignOut} onAmora={() => setView("build")} onPublish={() => setView("publish")} savedFlash={savedFlash} />;
 }
 
 /* ---------------- Amora guided build ---------------- */
-function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack }) {
+function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPublish, onBack }) {
   const onDone = () => onGoEditor("pages");
   const [msgs, setMsgs] = useState([
     { role: "amora", text: "Hi Kirby — I'm Amora. Let's make this book together, one step at a time.\n\nTell me what you have so far. It can be anything: just a feeling or an idea, a hard thing you want a child to understand, some page text you've already written, or even images you'd like to use. Where would you like to begin?" },
@@ -2607,6 +2608,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
           <button className="studio-tab on">Amora</button>
           <button className="studio-tab" onClick={() => onGoEditor("pages")}>Page Editor</button>
           <button className="studio-tab" onClick={() => onGoEditor("bible")}>Characters</button>
+          <button className="studio-tab" style={{color:"#E2A857"}} onClick={onPublish}>Publishing ✦</button>
         </div>
         <div className="amora-chat">
           <div className="amora-scroll" ref={scroller}>
@@ -2705,7 +2707,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onBack 
 }
 
 /* ---------------- Book editor: drag-drop pages, per-page chat, bible, consistency ---------------- */
-function BookEditor({ book, setBook, onBack, onSignOut, onAmora, savedFlash }) {
+function BookEditor({ book, setBook, onBack, onSignOut, onAmora, onPublish, savedFlash }) {
   const [tab, setTab] = useState("pages");
   const [report, setReport] = useState(null);
   const [checking, setChecking] = useState(false);
@@ -2778,6 +2780,7 @@ function BookEditor({ book, setBook, onBack, onSignOut, onAmora, savedFlash }) {
           <button className="studio-tab" onClick={onAmora}>Amora</button>
           <button className={`studio-tab${tab === "pages" ? " on" : ""}`} onClick={() => setTab("pages")}>Page Editor</button>
           <button className={`studio-tab${tab === "bible" ? " on" : ""}`} onClick={() => setTab("bible")}>Characters</button>
+          <button className="studio-tab" style={{color:"#E2A857"}} onClick={onPublish}>Publishing ✦</button>
         </div>
 
         {tab === "pages" ? (
