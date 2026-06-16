@@ -2644,7 +2644,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           }
 
         } else if (isMultiPageReq) {
-          const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
+          const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
           const seed = collection ? collection.seed : null;
           const charManifest = activeChars.length
             ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
@@ -2687,7 +2687,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           }
 
         } else if (isImageReq) {
-          const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
+          const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
           const seed = collection ? collection.seed : null;
           const charManifest = activeChars.length
             ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
@@ -3074,7 +3074,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
     setPgImgErr((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
     setPgImgBusy((prev) => ({ ...prev, [p.id]: true }));
     try {
-      const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
+      const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
       const charManifest = activeChars.length
         ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
         : "(no named characters — environment/setting only)";
@@ -3306,7 +3306,7 @@ function PageChat({ book, page, onClose, onApply, onGenerateImage }) {
   // image pipeline below — never to free-text chat, which has no way to actually paint
   // anything and was previously just narrating fake "Done" messages.
   const isImgReq = (t) => /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(t)
-    && /image|picture|illustrat|art\b|drawing/i.test(t);
+    && /page|scene|spread|cover|background|setting|image|picture|illustrat|art\b|drawing/i.test(t);
 
   const send = async () => {
     const text = input.trim(); if (!text || busy) return;
