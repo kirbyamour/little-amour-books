@@ -89,7 +89,7 @@ const AUTHORS = {
     ],
   },
   june: {
-    id: "june", name: "June Ellery", grad: ["#6E3E50", "#A4707E"],
+    id: "june", name: "June Ellery", photo: "/june-ellery.jpg", grad: ["#6E3E50", "#A4707E"],
     look: { skin: "#8C5A3C", hair: "#1F1A18", top: "#A4707E", style: "curls" },
     tagline: "Former preschool teacher. Permanent believer in quiet courage.",
     intro: "June writes for the children who go quiet when life gets loud. Her stories make small acts of bravery visible — and worthy of celebration.",
