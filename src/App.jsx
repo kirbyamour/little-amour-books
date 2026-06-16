@@ -2069,7 +2069,7 @@ const KCHIP = {
 let _pid = 0;
 const newId = () => "p" + Date.now() + "_" + (_pid++);
 
-function KirbyStudio({ go, onSignOut }) {
+function KirbyStudio({ go, onSignOut, account }) {
   const [data, setData] = useState(KIRBY_SEED);
   const [loaded, setLoaded] = useState(false);
   const [openId, setOpenId] = useState(null);
@@ -2079,6 +2079,11 @@ function KirbyStudio({ go, onSignOut }) {
 
   useEffect(() => {
     (async () => {
+      try {
+        const { data: row } = await supabase.from("studio_data").select("data").eq("id", "kirby").maybeSingle();
+        if (row && row.data) { setData(row.data); setLoaded(true); return; }
+      } catch (e) { /* fall through to legacy local check */ }
+      // No Supabase row yet — check for legacy browser-only data and adopt it once.
       try {
         const r = await window.storage.get("lab:studio:kirby:v2");
         if (r && r.value) setData(JSON.parse(r.value));
@@ -2090,7 +2095,7 @@ function KirbyStudio({ go, onSignOut }) {
     if (!loaded) return;
     const t = setTimeout(async () => {
       try {
-        await window.storage.set("lab:studio:kirby:v2", JSON.stringify(data));
+        await supabase.from("studio_data").upsert({ id: "kirby", data, updated_at: new Date().toISOString() });
         setSavedFlash(true);
         setTimeout(() => setSavedFlash(false), 2000);
       } catch (e) { /* non-fatal */ }
@@ -2242,6 +2247,7 @@ function KirbyStudio({ go, onSignOut }) {
   if (view === "build") {
     const activeColl = collections.find((c) => c.id === book?.collectionId) || null;
     return <AmoraBuild book={book} setBook={setBook} collection={activeColl} savedFlash={savedFlash}
+      authorEmail={account?.email}
       onGoEditor={(tab) => { setView("edit"); }}
       onPublish={() => setView("publish")}
       onBack={() => setView("list")} />;
@@ -2252,7 +2258,7 @@ function KirbyStudio({ go, onSignOut }) {
 }
 
 /* ---------------- Amora guided build ---------------- */
-function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPublish, onBack }) {
+function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPublish, onBack, authorEmail }) {
   const onDone = () => onGoEditor("pages");
   const [msgs, setMsgs] = useState([
     { role: "amora", text: "Hi Kirby — I'm Amora. Let's make this book together, one step at a time.\n\nTell me what you have so far. It can be anything: just a feeling or an idea, a hard thing you want a child to understand, some page text you've already written, or even images you'd like to use. Where would you like to begin?" },
@@ -2265,6 +2271,34 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
   useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [msgs, busy]);
 
   const push = (role, text) => setMsgs((m) => [...m, { role, text }]);
+
+  // Amora's continuous memory of this author — loaded once per session, updated quietly
+  // after each real exchange so she keeps getting to know the author over time.
+  const [memory, setMemory] = useState("");
+  const memoryRef = useRef("");
+  useEffect(() => {
+    if (!authorEmail) return;
+    (async () => {
+      try {
+        const { data: row } = await supabase.from("amora_memory").select("memory").eq("author_email", authorEmail).maybeSingle();
+        if (row && row.memory) { memoryRef.current = row.memory; setMemory(row.memory); }
+      } catch (e) { /* no memory yet, that's fine */ }
+    })();
+  }, [authorEmail]);
+  const updateMemory = async (userText, amoraReply) => {
+    if (!authorEmail) return;
+    try {
+      const updated = await amora(
+        `You keep a private, ongoing memory file about this author for Amora's own use — never shown to her directly. Current memory:\n"""${memoryRef.current || "(nothing yet)"}"""\n\nNew exchange:\nAuthor: ${userText}\nAmora: ${amoraReply}\n\nRewrite the memory file: under 150 words, plain prose, durable facts only — her tone, recurring themes, what she's working through, names she cares about, preferences. Skip anything that's just small talk. Return ONLY the updated memory text, nothing else.`,
+        "You are a quiet memory-keeper, not a conversational voice. Output plain text only, no preamble, no quotes.", 300
+      );
+      const trimmed = (updated || "").trim();
+      if (!trimmed) return;
+      memoryRef.current = trimmed;
+      setMemory(trimmed);
+      await supabase.from("amora_memory").upsert({ author_email: authorEmail, memory: trimmed, updated_at: new Date().toISOString() });
+    } catch (e) { /* best-effort, never block the conversation on this */ }
+  };
 
   const attachChatImage = (file) => {
     if (!file) return;
@@ -2413,10 +2447,12 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           const charBible = book.characters.length
             ? `\n\nCharacter Bible:\n${book.characters.map((c) => `— ${c.name}: ${c.desc}`).join("\n")}`
             : "";
+          const memoryContext = memoryRef.current ? `\n\nWhat you remember about this author from past sessions: ${memoryRef.current}` : "";
           const reply = await amora(
-            `You are guiding the author through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.${collContext}${charBible}\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft or generate pages. You CAN generate illustration images — just tell the author to say something like "generate page 3 showing [scene]". Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
+            `You are guiding the author through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.${collContext}${charBible}${memoryContext}\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft or generate pages. You CAN generate illustration images — just tell the author to say something like "generate page 3 showing [scene]". Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
           );
           push("amora", reply);
+          updateMemory(text, reply);
         }
       }
     } catch (e) {
@@ -3080,7 +3116,7 @@ export default function App() {
         onPickAuthor={(a) => setPersona({ id: a.id, name: a.name, email: account.email, photoUrl: a.photo || null, isKirby: false })}
         onPickAdmin={() => setPersona("admin")}
         onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
-    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
+    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} account={account} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
     else if (account?.isKirby && persona) page = <DashboardPage go={go} author={persona}
         onSignOut={() => setPersona(null)}
         signOutLabel="← Back to switcher" />;
