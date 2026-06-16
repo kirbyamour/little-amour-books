@@ -2136,7 +2136,7 @@ const KCHIP = {
 let _pid = 0;
 const newId = () => "p" + Date.now() + "_" + (_pid++);
 
-function KirbyStudio({ go, onSignOut, account }) {
+function KirbyStudio({ go, onSignOut, account, homeSignal }) {
   const [data, setData] = useState(KIRBY_SEED);
   const [loaded, setLoaded] = useState(false);
   const [openId, setOpenId] = useState(null);
@@ -2145,6 +2145,15 @@ function KirbyStudio({ go, onSignOut, account }) {
   const [savedFlash, setSavedFlash] = useState(false);
   const [portraitBusy, setPortraitBusy] = useState({}); // "collId:charIndex" -> true while generating
   const [editingCollId, setEditingCollId] = useState(null); // id of the collection currently open for editing
+
+  // Clicking "My studio" in the global nav bumps homeSignal — jump back to the dashboard list
+  // no matter how deep in the editor/Amora/publish flow we currently are.
+  useEffect(() => {
+    setView("list");
+    setOpenId(null);
+    setPickingCollection(false);
+    setEditingCollId(null);
+  }, [homeSignal]);
 
   useEffect(() => {
     (async () => {
@@ -3127,6 +3136,7 @@ function PageChat({ book, page, onClose, onApply }) {
    ============================================================ */
 export default function App() {
   const [route, setRoute] = useState({ page: "home", id: null });
+  const [studioHome, setStudioHome] = useState(0); // bumped to force KirbyStudio back to its dashboard list
   const [account, setAccount] = useState(null);
   const [persona, setPersona] = useState(null); // author Kirby is currently viewing as
   const [order, setOrder] = useState(null);
@@ -3289,7 +3299,7 @@ export default function App() {
         onPickAuthor={(a) => setPersona({ id: a.id, name: a.name, email: account.email, photoUrl: a.photo || null, isKirby: false })}
         onPickAdmin={() => setPersona("admin")}
         onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
-    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} account={account} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
+    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} account={account} homeSignal={studioHome} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
     else if (account?.isKirby && persona) page = <DashboardPage go={go} author={persona}
         onSignOut={() => setPersona(null)}
         signOutLabel="← Back to switcher" />;
@@ -3320,7 +3330,7 @@ export default function App() {
           <button className={"nav-link cart-btn" + (route.page === "cart" ? " on" : "")} onClick={() => go("cart")} aria-label={`Cart — ${cart.length} item${cart.length !== 1 ? "s" : ""}`}>
             🛍 {cart.length > 0 && <span className="cart-badge">{cart.length}</span>}
           </button>
-          <button className={"nav-link signin" + (route.page === "signin" ? " on" : "")} onClick={() => go("signin")}>
+          <button className={"nav-link signin" + (route.page === "signin" ? " on" : "")} onClick={() => { setStudioHome((n) => n + 1); go("signin"); }}>
             {account ? "My studio" : "Sign in"}
           </button>
         </div>
