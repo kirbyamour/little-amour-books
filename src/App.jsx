@@ -2410,7 +2410,8 @@ function KirbyStudio({ go, onSignOut, account, homeSignal }) {
   }
 
   /* ---------------- BOOK EDITOR ---------------- */
-  return <BookEditor book={book} setBook={setBook} onBack={() => setView("list")} onSignOut={onSignOut} onAmora={() => setView("build")} onPublish={() => setView("publish")} savedFlash={savedFlash} />;
+  const editorColl = collections.find((c) => c.id === book?.collectionId) || null;
+  return <BookEditor book={book} setBook={setBook} collection={editorColl} onBack={() => setView("list")} onSignOut={onSignOut} onAmora={() => setView("build")} onPublish={() => setView("publish")} savedFlash={savedFlash} />;
 }
 
 /* ---------------- Amora guided build ---------------- */
@@ -2924,11 +2925,12 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
 }
 
 /* ---------------- Book editor: drag-drop pages, per-page chat, bible, consistency ---------------- */
-function BookEditor({ book, setBook, onBack, onSignOut, onAmora, onPublish, savedFlash }) {
+function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onPublish, savedFlash }) {
   const [tab, setTab] = useState("pages");
   const [report, setReport] = useState(null);
   const [checking, setChecking] = useState(false);
   const [chatPage, setChatPage] = useState(null);
+  const [portraitBusy, setPortraitBusy] = useState({}); // character index -> true while painting
   const drag = useRef(null);
 
   const setPage = (id, patch) => setBook((b) => ({ ...b, pages: b.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
@@ -2937,6 +2939,28 @@ function BookEditor({ book, setBook, onBack, onSignOut, onAmora, onPublish, save
   const setChar = (i, patch) => setBook((b) => ({ ...b, characters: b.characters.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
   const addChar = () => setBook((b) => ({ ...b, characters: [...b.characters, { name: "New character", desc: "" }] }));
   const removeChar = (i) => setBook((b) => ({ ...b, characters: b.characters.filter((_, j) => j !== i) }));
+
+  // Same character-portrait pipeline as the Character Collections cards — generated once
+  // per character and editable here too, so the Character Bible isn't text-only.
+  const regenChar = async (i) => {
+    if (portraitBusy[i]) return;
+    const c = book.characters[i];
+    if (!c) return;
+    setPortraitBusy((b) => ({ ...b, [i]: true }));
+    try {
+      const styleGuide = collection?.styleGuide || book.derivedStyle || book.styleGuide || "";
+      const url = await genCharacterPortrait(c, styleGuide, collection?.seed || null);
+      setChar(i, { img: url });
+    } catch (e) { /* leave portrait as-is, author can retry */ }
+    setPortraitBusy((b) => { const n = { ...b }; delete n[i]; return n; });
+  };
+  // Lazily fill in any character missing a portrait while the Characters tab is open, one at a time.
+  useEffect(() => {
+    if (tab !== "bible") return;
+    for (let i = 0; i < book.characters.length; i++) {
+      if (!book.characters[i].img && !portraitBusy[i]) { regenChar(i); return; }
+    }
+  }, [tab, book.characters, portraitBusy]);
 
   const onDrop = (id) => {
     const from = drag.current, to = id;
@@ -3067,9 +3091,19 @@ function BookEditor({ book, setBook, onBack, onSignOut, onAmora, onPublish, save
             <p className="fine" style={{ marginTop: 0 }}>This is your Character Bible — the locked descriptions that keep everyone looking and feeling the same on every page. The consistency check measures the whole book against it, and you can start a brand-new book reusing these exact characters from your book list.</p>
             {book.characters.map((c, i) => (
               <div key={i} className="char-row">
-                <input className="char-name" value={c.name} onChange={(e) => setChar(i, { name: e.target.value })} />
+                <div className="char-row-id">
+                  <div className="coll-portrait" style={{ width: 56, height: 56 }} title={c.name}>
+                    {c.img ? <img src={c.img} alt={c.name} /> : <span className="coll-portrait-fallback">{portraitBusy[i] ? "…" : (c.name || "?").charAt(0)}</span>}
+                  </div>
+                  <input className="char-name" value={c.name} onChange={(e) => setChar(i, { name: e.target.value })} />
+                </div>
                 <textarea rows={3} value={c.desc} onChange={(e) => setChar(i, { desc: e.target.value })} placeholder="Appearance, clothing, props, personality — everything that must stay the same." />
-                <button className="btn-text soft" onClick={() => removeChar(i)}>remove</button>
+                <div className="char-row-actions">
+                  <button className="btn-text soft" disabled={!!portraitBusy[i]} onClick={() => regenChar(i)}>
+                    {portraitBusy[i] ? "painting…" : c.img ? "regenerate portrait" : "generate portrait"}
+                  </button>
+                  <button className="btn-text soft" onClick={() => removeChar(i)}>remove</button>
+                </div>
               </div>
             ))}
             <button className="btn-line dark" onClick={addChar}>+ Add a character</button>
@@ -3137,8 +3171,18 @@ function PageChat({ book, page, onClose, onApply }) {
 export default function App() {
   const [route, setRoute] = useState({ page: "home", id: null });
   const [studioHome, setStudioHome] = useState(0); // bumped to force KirbyStudio back to its dashboard list
-  const [account, setAccount] = useState(null);
-  const [persona, setPersona] = useState(null); // author Kirby is currently viewing as
+  const [account, setAccount] = useState(() => {
+    try { const raw = localStorage.getItem("la_account"); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+  });
+  const [persona, setPersona] = useState(() => {
+    try { const raw = localStorage.getItem("la_persona"); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+  }); // author Kirby is currently viewing as
+  useEffect(() => {
+    try { if (account) localStorage.setItem("la_account", JSON.stringify(account)); else localStorage.removeItem("la_account"); } catch (e) {}
+  }, [account]);
+  useEffect(() => {
+    try { if (persona) localStorage.setItem("la_persona", JSON.stringify(persona)); else localStorage.removeItem("la_persona"); } catch (e) {}
+  }, [persona]);
   const [order, setOrder] = useState(null);
   const [cart, setCart] = useState([]);      // { cartId, type, id, title, price, authorName, grad, motif }
   const [toastMsg, setToastMsg] = useState("");
@@ -3731,6 +3775,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .char-row textarea { width: 100%; font-family: var(--body); font-size: 14px; background: ${P.paper}; border: 1.5px solid #E9DCC8; border-radius: 8px; padding: 9px 11px; resize: vertical; }
 .char-row-actions { display: flex; flex-direction: column; gap: 6px; }
 .coll-editor { margin: 6px 0 10px; }
+.char-row-id { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.char-row-id .char-name { width: 100%; }
 
 .pagechat-overlay { position: fixed; inset: 0; background: rgba(19,26,48,.5); z-index: 70; display: flex; align-items: flex-end; justify-content: center; padding: 20px; }
 .pagechat { background: ${P.paper}; width: 100%; max-width: 560px; border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; max-height: 80vh; box-shadow: 0 -10px 40px rgba(0,0,0,.4); }
