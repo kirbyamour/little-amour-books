@@ -2691,6 +2691,18 @@ export default function AdminDashboard({ onBack }) {
   const [tab, setTab] = useState("overview");
   const [alerts, setAlerts] = useState({ applications: 0, themes: 0 });
 
+  useEffect(() => {
+    if (!unlocked) return;
+    Promise.all([
+      supabase.from("author_applications").select("*", { count: "exact", head: true }).eq("status", "new"),
+      supabase.from("proposed_categories").select("*", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("book_submissions").select("*", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("launch_emails").select("*", { count: "exact", head: true }).eq("status", "draft"),
+    ]).then(([apps, themes, bsub, launch]) => {
+      setAlerts({ applications: apps.count || 0, themes: themes.count || 0, pendingbooks: bsub.count || 0, lachemails: launch.count || 0 });
+    });
+  }, [unlocked]);
+
   if (!unlocked) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0E1525" }}>
@@ -2734,17 +2746,6 @@ export default function AdminDashboard({ onBack }) {
       </div>
     );
   }
-
-  useEffect(() => {
-    Promise.all([
-      supabase.from("author_applications").select("*", { count: "exact", head: true }).eq("status", "new"),
-      supabase.from("proposed_categories").select("*", { count: "exact", head: true }).eq("status", "pending"),
-      supabase.from("book_submissions").select("*", { count: "exact", head: true }).eq("status", "pending"),
-      supabase.from("launch_emails").select("*", { count: "exact", head: true }).eq("status", "draft"),
-    ]).then(([apps, themes, bsub, launch]) => {
-      setAlerts({ applications: apps.count || 0, themes: themes.count || 0, pendingbooks: bsub.count || 0, lachemails: launch.count || 0 });
-    });
-  }, []);
 
   const renderTab = () => {
     switch (tab) {
