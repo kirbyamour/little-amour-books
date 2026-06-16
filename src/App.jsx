@@ -1757,7 +1757,7 @@ function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut }) {
             <h2>Which author today?</h2>
             <p className="lead" style={{marginTop:4}}>You're signed in as Kirby. Pick a dashboard to open, or go to your studio.</p>
           </div>
-          <button className="btn-text" onClick={onSignOut}>{signOutLabel || "Sign out"}</button>
+          <button className="btn-text" onClick={onSignOut}>Sign out</button>
         </div>
 
         <div className="chooser-grid">
