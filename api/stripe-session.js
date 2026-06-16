@@ -42,7 +42,7 @@ export default async function handler(req, res) {
       cancel_url: `${SITE}/cart`,
       metadata: {
         items: JSON.stringify(
-          items.map((i) => ({ id: i.id, type: i.type, title: i.title, price: i.price, authorName: i.authorName || "" }))
+          items.map((i) => ({ id: i.id, type: i.type, title: i.title, price: i.price, authorName: i.authorName || "", author: i.author || "", authors: i.authors || [] }))
         ),
       },
       payment_intent_data: {

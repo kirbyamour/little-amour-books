@@ -80,6 +80,53 @@ export default async function handler(req, res) {
       }
     }
 
+    // 2.5 Pay authors their 75% split via Stripe Connect transfers
+    try {
+      const { data: authorRows } = await supabase
+        .from("author_profiles")
+        .select("slug, stripe_account_id, stripe_onboarded");
+      const bySlug = {};
+      (authorRows || []).forEach((a) => { if (a.slug) bySlug[a.slug] = a; });
+
+      for (const item of items) {
+        if (item.type === "merch") continue;
+        const slugs = item.type === "pack" && Array.isArray(item.authors) && item.authors.length
+          ? item.authors
+          : (item.author ? [item.author] : []);
+        if (!slugs.length) continue;
+
+        const sharePrice = item.price / slugs.length;
+        for (const slug of slugs) {
+          if (slug === "kirby") continue; // platform owner — her share stays on the platform account
+          const author = bySlug[slug];
+          if (!author || !author.stripe_account_id || !author.stripe_onboarded) {
+            console.warn(`Skipping author payout for "${slug}" — not connected/onboarded yet (order ${session.id})`);
+            continue;
+          }
+          const amount = Math.round(sharePrice * 0.75 * 100);
+          if (amount <= 0) continue;
+          try {
+            await stripe.transfers.create({
+              amount,
+              currency: "usd",
+              destination: author.stripe_account_id,
+              transfer_group: session.id,
+              metadata: {
+                order_id: order?.id || "",
+                session_id: session.id,
+                item_id: item.id,
+                author_slug: slug,
+              },
+            });
+          } catch (transferErr) {
+            console.error(`Transfer failed for "${slug}" on order ${session.id}:`, transferErr.message);
+          }
+        }
+      }
+    } catch (splitErr) {
+      console.error("Author payout split error:", splitErr.message);
+    }
+
     // 3. Send confirmation email
     if (email && process.env.RESEND_API_KEY) {
       const digitalItems = items.filter((i) => i.type !== "merch");

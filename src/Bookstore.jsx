@@ -900,7 +900,7 @@ export function PackPage({ packId, go, books, addToCart }) {
               </span>
             </div>
             <div className="bs-pack-hero-ctas">
-              <button className="btn-gold" onClick={() => addToCart ? addToCart({ type: "pack", id: pack.id, title: pack.title, price: Number(pack.price), grad: pack.grad, motif: "lantern" }) : go("packs")}>
+              <button className="btn-gold" onClick={() => addToCart ? addToCart({ type: "pack", id: pack.id, title: pack.title, price: Number(pack.price), authors: [...new Set(packBooks.map(b => b.author).filter(Boolean))], grad: pack.grad, motif: "lantern" }) : go("packs")}>
                 {pack.isSponsor ? "Sponsor this library" : `Add to bag — $${pack.price}`}
               </button>
               {pack.isSponsor

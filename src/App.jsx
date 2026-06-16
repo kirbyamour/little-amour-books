@@ -601,7 +601,7 @@ function BookPage({ book, go, toast, addToCart }) {
                 </button>
               ) : (
                 <>
-                  <button className="btn-gold" onClick={() => addToCart ? addToCart({ type: "book", id: book.id, title: book.title, price: book.price, authorName: book.authorName, grad: book.grad, motif: book.motif }) : go("checkout", book.id)}>
+                  <button className="btn-gold" onClick={() => addToCart ? addToCart({ type: "book", id: book.id, title: book.title, price: book.price, author: book.author, authorName: book.authorName, grad: book.grad, motif: book.motif }) : go("checkout", book.id)}>
                     Add to bag — ${book.price.toFixed(2)}
                   </button>
                   <button className="btn-line dark" onClick={() => toast("In production this links to the book's live Amazon listing, published under the Little Amour imprint.")}>

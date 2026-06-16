@@ -2108,6 +2108,7 @@ function AuthorAccounts() {
                   {a.legal_name && <p style={{ color: P2.muted, fontSize: 12, margin: "2px 0 0" }}>Legal: {a.legal_name}</p>}
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {!a.is_admin && <ConnectStatus author={a} P2={P2} flash={flash} onUpdated={load} />}
                   <ResetPasswordInline id={a.id} onReset={resetPw} P2={P2} />
                   {!a.is_admin && (
                     <button onClick={() => toggle(a.id, a.active)}
@@ -2124,6 +2125,72 @@ function AuthorAccounts() {
 
       {toast && <div style={{ marginTop: 20, padding: "10px 16px", background: toast.startsWith("Error") ? P2.red : P2.green, color: "#fff", borderRadius: 8, fontSize: 13 }}>{toast}</div>}
     </div>
+  );
+}
+
+function ConnectStatus({ author, P2, flash, onUpdated }) {
+  const [busy, setBusy] = useState(false);
+
+  const onboarded = !!author.stripe_onboarded;
+  const connectedNotOnboarded = !!author.stripe_account_id && !onboarded;
+
+  const startOnboarding = async () => {
+    if (!author.slug) { flash("Error: this author has no slug set — ask Claude to set one."); return; }
+    setBusy(true);
+    try {
+      const res = await fetch("/api/stripe-connect-onboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: author.slug }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        await navigator.clipboard.writeText(data.url).catch(() => {});
+        window.open(data.url, "_blank");
+        flash(`✓ Onboarding link opened for ${author.pen_name} (also copied to clipboard)`);
+        onUpdated && onUpdated();
+      } else {
+        flash("Error: " + (data.error || "Could not create onboarding link"));
+      }
+    } catch (err) {
+      flash("Error: " + err.message);
+    }
+    setBusy(false);
+  };
+
+  const checkStatus = async () => {
+    if (!author.slug) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/stripe-connect-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: author.slug }),
+      });
+      const data = await res.json();
+      if (data.onboarded) flash(`✓ ${author.pen_name} is fully connected — payouts will flow automatically`);
+      else if (data.connected) flash(`${author.pen_name} has started but not finished Stripe onboarding`);
+      else flash(`${author.pen_name} hasn't connected Stripe yet`);
+      onUpdated && onUpdated();
+    } catch (err) {
+      flash("Error: " + err.message);
+    }
+    setBusy(false);
+  };
+
+  if (onboarded) {
+    return (
+      <span onClick={checkStatus} title="Click to re-check status" style={{ cursor: "pointer", background: P2.green + "22", color: P2.green, border: `1px solid ${P2.green}55`, borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 700 }}>
+        ✓ Stripe Connected
+      </span>
+    );
+  }
+
+  return (
+    <button onClick={connectedNotOnboarded ? checkStatus : startOnboarding} disabled={busy}
+      style={{ background: "transparent", color: P2.gold, border: `1px solid ${P2.gold}88`, borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
+      {busy ? "…" : connectedNotOnboarded ? "Check Stripe status" : "Connect Stripe (75% payouts)"}
+    </button>
   );
 }
 
