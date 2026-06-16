@@ -2116,6 +2116,7 @@ function KirbyStudio({ go, onSignOut, account }) {
   const [pickingCollection, setPickingCollection] = useState(false); // collection picker modal
   const [savedFlash, setSavedFlash] = useState(false);
   const [portraitBusy, setPortraitBusy] = useState({}); // "collId:charIndex" -> true while generating
+  const [editingCollId, setEditingCollId] = useState(null); // id of the collection currently open for editing
 
   useEffect(() => {
     (async () => {
@@ -2149,6 +2150,16 @@ function KirbyStudio({ go, onSignOut, account }) {
 
   const collections = data.collections || [];
   const setCollections = (patch) => setData((d) => ({ ...d, collections: typeof patch === "function" ? patch(d.collections || []) : patch }));
+
+  const setCollChar = (collId, i, patch) =>
+    setCollections((cs) => cs.map((c) => (c.id === collId ? { ...c, characters: c.characters.map((ch, j) => (j === i ? { ...ch, ...patch } : ch)) } : c)));
+  const addCollChar = (collId) =>
+    setCollections((cs) => cs.map((c) => (c.id === collId ? { ...c, characters: [...c.characters, { name: "New character", desc: "" }] } : c)));
+  const removeCollChar = (collId, i) =>
+    setCollections((cs) => cs.map((c) => (c.id === collId ? { ...c, characters: c.characters.filter((_, j) => j !== i) } : c)));
+  const renameColl = (collId, name) => setCollections((cs) => cs.map((c) => (c.id === collId ? { ...c, name } : c)));
+  const setCollStyleGuide = (collId, styleGuide) => setCollections((cs) => cs.map((c) => (c.id === collId ? { ...c, styleGuide } : c)));
+  const regenPortrait = (collId, i) => setCollChar(collId, i, { img: null }); // clearing img lets the lazy-portrait effect repaint it from the latest name/desc
 
   // Lazily fill in missing character reference portraits, one at a time, and save once generated.
   useEffect(() => {
@@ -2281,9 +2292,14 @@ function KirbyStudio({ go, onSignOut, account }) {
                 <div key={c.id} className="coll-card">
                   <div className="coll-card-head">
                     <strong>{c.name}</strong>
-                    <button className="btn-text soft" onClick={() => {
-                      if (window.confirm("Delete this collection?")) setCollections((cs) => cs.filter((x) => x.id !== c.id));
-                    }}>delete</button>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button className="btn-text soft" onClick={() => setEditingCollId(editingCollId === c.id ? null : c.id)}>
+                        {editingCollId === c.id ? "done" : "edit"}
+                      </button>
+                      <button className="btn-text soft" onClick={() => {
+                        if (window.confirm("Delete this collection?")) setCollections((cs) => cs.filter((x) => x.id !== c.id));
+                      }}>delete</button>
+                    </div>
                   </div>
                   <div className="coll-portraits">
                     {c.characters.map((ch, i) => (
@@ -2296,8 +2312,32 @@ function KirbyStudio({ go, onSignOut, account }) {
                       </div>
                     ))}
                   </div>
-                  <p className="fine" style={{ margin: "4px 0 6px" }}>{c.characters.map((ch) => ch.name).join(" · ")}</p>
-                  {c.styleGuide ? <p className="fine coll-style">{c.styleGuide}</p> : null}
+                  {editingCollId === c.id ? (
+                    <div className="coll-editor">
+                      <label className="fine" style={{ display: "block", margin: "8px 0 4px" }}>Collection name</label>
+                      <input className="char-name" style={{ width: "100%", marginBottom: 10 }} value={c.name} onChange={(e) => renameColl(c.id, e.target.value)} />
+                      <label className="fine" style={{ display: "block", margin: "8px 0 4px" }}>Style guide</label>
+                      <textarea rows={2} style={{ width: "100%", marginBottom: 10 }} value={c.styleGuide || ""} onChange={(e) => setCollStyleGuide(c.id, e.target.value)} placeholder="Art style, palette, mood — locked across every page." />
+                      {c.characters.map((ch, i) => (
+                        <div key={i} className="char-row">
+                          <input className="char-name" value={ch.name} onChange={(e) => setCollChar(c.id, i, { name: e.target.value })} />
+                          <textarea rows={3} value={ch.desc} onChange={(e) => setCollChar(c.id, i, { desc: e.target.value })} placeholder="Appearance, clothing, props, personality — everything that must stay the same." />
+                          <div className="char-row-actions">
+                            <button className="btn-text soft" disabled={!!portraitBusy[c.id + ":" + i]} onClick={() => regenPortrait(c.id, i)}>
+                              {portraitBusy[c.id + ":" + i] ? "painting…" : "regenerate portrait"}
+                            </button>
+                            <button className="btn-text soft" onClick={() => removeCollChar(c.id, i)}>remove</button>
+                          </div>
+                        </div>
+                      ))}
+                      <button className="btn-line dark" onClick={() => addCollChar(c.id)}>+ Add a character</button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="fine" style={{ margin: "4px 0 6px" }}>{c.characters.map((ch) => ch.name).join(" · ")}</p>
+                      {c.styleGuide ? <p className="fine coll-style">{c.styleGuide}</p> : null}
+                    </>
+                  )}
                   <button className="btn-text" style={{ marginTop: 4 }} onClick={() => createBookWithCollection(c.id)}>
                     Start a book with these characters →
                   </button>
@@ -3626,6 +3666,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .char-row { display: grid; grid-template-columns: 180px 1fr auto; gap: 12px; align-items: start; background: ${P.cream}; border: 1px solid #EBDFCC; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
 .char-name { font-family: var(--display); font-size: 16px; color: ${P.ink}; background: ${P.paper}; border: 1.5px solid #E9DCC8; border-radius: 8px; padding: 9px 11px; }
 .char-row textarea { width: 100%; font-family: var(--body); font-size: 14px; background: ${P.paper}; border: 1.5px solid #E9DCC8; border-radius: 8px; padding: 9px 11px; resize: vertical; }
+.char-row-actions { display: flex; flex-direction: column; gap: 6px; }
+.coll-editor { margin: 6px 0 10px; }
 
 .pagechat-overlay { position: fixed; inset: 0; background: rgba(19,26,48,.5); z-index: 70; display: flex; align-items: flex-end; justify-content: center; padding: 20px; }
 .pagechat { background: ${P.paper}; width: 100%; max-width: 560px; border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; max-height: 80vh; box-shadow: 0 -10px 40px rgba(0,0,0,.4); }
