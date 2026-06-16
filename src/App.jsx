@@ -2036,6 +2036,34 @@ function parseLoose(text) {
   if (a === -1 || b === -1) throw new Error("no json");
   return JSON.parse(t.slice(a, b + 1));
 }
+function parseLooseArray(text) {
+  let t = text.replace(/```json|```/g, "").trim();
+  const a = t.indexOf("["), b = t.lastIndexOf("]");
+  if (a === -1 || b === -1) throw new Error("no json array");
+  return JSON.parse(t.slice(a, b + 1));
+}
+// Vision pass on existing page art — reconciles the Character Bible with how characters
+// actually look on the pages already in the book, instead of the text description drifting.
+async function deriveCharactersFromImages(dataUrls, existingChars) {
+  const bibleText = (existingChars || []).length
+    ? existingChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+    : "(no characters defined yet)";
+  const content = [
+    { type: "text", text: `These are pages from a children's picture book. The current Character Bible reads:\n${bibleText}\n\nLook closely at how each character actually appears across these pages — face, hair, skin tone, clothing, colours, recurring props. Rewrite the Character Bible so every entry matches the art exactly. Keep the same characters (don't invent new ones unless someone recurring and unnamed clearly needs a name — then pick a fitting one), but correct any detail that drifted from the text description. Return ONLY a JSON array, nothing else: [{"name":"...","desc":"full visual + emotional description, vivid enough to keep every future page consistent"}]` },
+    ...dataUrls.map(url => {
+      const m = url.match(/^data:([^;]+);base64,(.+)$/);
+      return m ? { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } } : null;
+    }).filter(Boolean),
+  ];
+  const res = await fetch("/api/chat", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1500, messages: [{ role: "user", content }] }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || "Studio tools unavailable");
+  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  return parseLooseArray(text);
+}
 
 async function genCharacterPortrait(character, styleGuide, seed) {
   const prompt = [
@@ -2379,15 +2407,17 @@ function KirbyStudio({ go, onSignOut, account }) {
 /* ---------------- Amora guided build ---------------- */
 function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPublish, onBack, authorEmail }) {
   const onDone = () => onGoEditor("pages");
-  const [msgs, setMsgs] = useState([
+  const [msgs, setMsgs] = useState(() => (book.amoraChat && book.amoraChat.length ? book.amoraChat : [
     { role: "amora", text: "Hi Kirby — I'm Amora. Let's make this book together, one step at a time.\n\nTell me what you have so far. It can be anything: just a feeling or an idea, a hard thing you want a child to understand, some page text you've already written, or even images you'd like to use. Where would you like to begin?" },
-  ]);
+  ]));
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [chatImg, setChatImg] = useState(null); // {dataUrl, mediaType, name}
   const chatImgRef = useRef(null);
   const scroller = useRef(null);
   useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [msgs, busy]);
+  // Keep the conversation saved on the book itself — so it survives switching screens and comes back next session.
+  useEffect(() => { setBook((b) => ({ ...b, amoraChat: msgs })); }, [msgs]);
 
   const push = (role, text) => setMsgs((m) => [...m, { role, text }]);
 
@@ -2469,7 +2499,30 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         // Detect save-to-bible request
         const isSaveBible = text.toLowerCase().includes("save") && (text.toLowerCase().includes("character") || text.toLowerCase().includes("bible"));
 
-        if (isImageReq) {
+        // Detect "make the Character Bible match the art already on the pages" request —
+        // no fresh image attached, but the book already has generated/uploaded page art to look at.
+        const isSyncCharsFromPages = /character|bible/i.test(text)
+          && /match|update|sync|fix|correct|same as|reflect/i.test(text)
+          && /image|picture|art|illustrat|page|drawing/i.test(text);
+
+        if (isSyncCharsFromPages) {
+          const pageImgs = book.pages.filter((p) => p.img).map((p) => p.img);
+          if (!pageImgs.length) {
+            push("amora", "I don't see any finished page art in this book yet to compare against — generate or upload at least one page, then ask me again and I'll line up the Character Bible with it.");
+          } else {
+            push("amora", "Let me look at your pages and line up the Character Bible with what's actually drawn…");
+            try {
+              const chars = await deriveCharactersFromImages(pageImgs.slice(0, 6), book.characters);
+              if (Array.isArray(chars) && chars.length) {
+                setBook((b) => ({ ...b, characters: chars }));
+                push("amora", `Done — I matched the Character Bible to your pages. Updated: ${chars.map((c) => c.name).join(", ")}. You can see and fine-tune them anytime in the Character Bible below.`);
+              } else throw new Error("no chars");
+            } catch (e) {
+              push("amora", "I had trouble reading the characters off those pages just now — could you try again, or tell me directly what's changed about how they look?");
+            }
+          }
+
+        } else if (isImageReq) {
           const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
           const seed = collection ? collection.seed : null;
 
