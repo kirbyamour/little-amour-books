@@ -2178,6 +2178,14 @@ function ConnectStatus({ author, P2, flash, onUpdated }) {
     setBusy(false);
   };
 
+  if (author.is_house_account) {
+    return (
+      <span title="This pen name's sales stay in the company account — no separate payout needed" style={{ color: P2.muted, border: `1px solid ${P2.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 12 }}>
+        House account
+      </span>
+    );
+  }
+
   if (onboarded) {
     return (
       <span onClick={checkStatus} title="Click to re-check status" style={{ cursor: "pointer", background: P2.green + "22", color: P2.green, border: `1px solid ${P2.green}55`, borderRadius: 6, padding: "5px 10px", fontSize: 12, fontWeight: 700 }}>

@@ -84,7 +84,7 @@ export default async function handler(req, res) {
     try {
       const { data: authorRows } = await supabase
         .from("author_profiles")
-        .select("slug, stripe_account_id, stripe_onboarded");
+        .select("slug, stripe_account_id, stripe_onboarded, is_house_account");
       const bySlug = {};
       (authorRows || []).forEach((a) => { if (a.slug) bySlug[a.slug] = a; });
 
@@ -97,9 +97,10 @@ export default async function handler(req, res) {
 
         const sharePrice = item.price / slugs.length;
         for (const slug of slugs) {
-          if (slug === "kirby") continue; // platform owner — her share stays on the platform account
           const author = bySlug[slug];
-          if (!author || !author.stripe_account_id || !author.stripe_onboarded) {
+          if (!author) continue;
+          if (author.is_house_account) continue; // house pen name — money stays in the company account
+          if (!author.stripe_account_id || !author.stripe_onboarded) {
             console.warn(`Skipping author payout for "${slug}" — not connected/onboarded yet (order ${session.id})`);
             continue;
           }
