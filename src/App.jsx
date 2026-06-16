@@ -1906,10 +1906,11 @@ function ProfilePhotoUpload({ author, onPhotoUpdate }) {
   );
 }
 
-function DashboardPage({ go, author, onSignOut, signOutLabel }) {
+function DashboardPage({ go, author, onSignOut, signOutLabel, studioKey }) {
   const [reply, setReply] = useState("");
   const [thread, setThread] = useState(DASH_SEED.feedback);
   const [currentAuthor, setCurrentAuthor] = React.useState(author);
+  const [inStudio, setInStudio] = useState(false);
   const send = () => {
     const t = reply.trim();
     if (!t) return;
@@ -1919,6 +1920,9 @@ function DashboardPage({ go, author, onSignOut, signOutLabel }) {
   const chip = (s) => ({
     approved: "st st-ok", changes: "st st-req", draft: "st st-draft",
   }[s] || "st");
+  if (inStudio) {
+    return <KirbyStudio go={go} account={author} studioKey={studioKey} homeSignal={0} onSignOut={() => setInStudio(false)} />;
+  }
   return (
     <section className="morning page-top">
       <div className="wrap">
@@ -1944,14 +1948,14 @@ function DashboardPage({ go, author, onSignOut, signOutLabel }) {
                 <button
                   className="btn-text"
                   onClick={() => {
-                    if (b.status === "draft") go("write");
+                    if (b.status === "draft") setInStudio(true);
                     else if (b.status === "changes") document.getElementById("dash-feedback")?.scrollIntoView({ behavior: "smooth", block: "start" });
                     else go("book", b.id);
                   }}
                 >{b.status === "draft" ? "Continue in studio →" : b.status === "changes" ? "View feedback →" : "View book →"}</button>
               </div>
             ))}
-            <button className="btn-gold" style={{ marginTop: 14 }} onClick={() => go("write")}>+ Start a new book with the AI studio</button>
+            <button className="btn-gold" style={{ marginTop: 14 }} onClick={() => setInStudio(true)}>+ Start a new book with the AI studio</button>
 
             <h3 className="bd-h" style={{ marginTop: 30 }}>Earnings</h3>
             <div className="earn-card">
@@ -2088,6 +2092,86 @@ async function genCharacterPortrait(character, styleGuide, seed) {
   return data.url;
 }
 
+// Picks a page-number rendering style that matches the book's visual aesthetic.
+function pageNumberStyleFor(styleGuide) {
+  const sg = (styleGuide || "").toLowerCase();
+  if (sg.includes("watercolour") || sg.includes("watercolor") || sg.includes("painted")) return "a small handwritten-style numeral in the bottom corner, in the book's ink colour, matching the painterly aesthetic";
+  if (sg.includes("ink") || sg.includes("pen") || sg.includes("sketch")) return "a small inked numeral in the bottom corner, matching the line-art style of the book";
+  if (sg.includes("flat") || sg.includes("vector") || sg.includes("minimal")) return "a small clean sans-serif numeral in the bottom corner, in a muted tone from the book's palette";
+  if (sg.includes("vintage") || sg.includes("retro") || sg.includes("classic")) return "a small vintage-style numeral in the bottom corner, in a warm sepia or aged tone";
+  if (sg.includes("collage") || sg.includes("mixed media")) return "a small hand-stamped or collaged numeral in the bottom corner";
+  if (sg.includes("digital") || sg.includes("bright") || sg.includes("bold")) return "a small bold rounded numeral in the bottom corner, in a complementary colour from the palette";
+  return "a small, gentle numeral in the bottom corner styled to match the book's art medium and colour palette";
+}
+
+const ILLUSTRATION_NEGATIVE_PROMPT = [
+  "photo realistic", "3d render", "different clothing", "different hair", "different skin tone",
+  "inconsistent character", "style change", "different art style", "cartoon", "anime",
+  "changed proportions", "adult content", "violence", "scary imagery",
+].join(", ");
+
+// Builds the full locked, consistency-enforced prompt sent to /api/image for one page.
+function buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum }) {
+  const pgNumStyle = pageNumberStyleFor(styleGuide);
+  return [
+    `STYLE (locked, must not change between pages): ${styleGuide}`,
+    ``,
+    `CHARACTERS (locked, exact appearance must be identical on every page):`,
+    charManifest,
+    ``,
+    `SCENE (this page only): ${sceneText}`,
+    ``,
+    `PAGE NUMBER: In the bottom corner of this illustration, include the numeral ${pageNum} as ${pgNumStyle}. The number should feel like a natural part of the illustration, not a label imposed on top.`,
+    ``,
+    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages is essential.`,
+  ].join("\n");
+}
+
+// Detects an author message that hands over literal, pre-written text for two or more
+// specifically-numbered pages at once (e.g. "Page 22 ... Page 23 ... Page 24 ...").
+// Returns [{num, text}] in the order they appeared, or [] if fewer than 2 are found.
+function parseNamedPages(text) {
+  const re = /page\s*(\d+)\s*[:\-–]?\s*\n?([\s\S]*?)(?=(?:\n\s*page\s*\d+\b)|$)/gi;
+  const out = [];
+  let m;
+  while ((m = re.exec(text))) {
+    const num = parseInt(m[1], 10);
+    const body = m[2].trim();
+    if (body) out.push({ num, text: body });
+  }
+  return out;
+}
+
+// Pulls any "coming soon" titles already announced on the public catalogue for this author
+// and turns them into empty draft-book shells she can open and build out with Amora.
+function seedDraftBooksFor(authorKey) {
+  return BOOKS.filter((b) => b.author === authorKey && b.status === "coming").map((b) => ({
+    id: "seed_" + b.id,
+    title: b.title,
+    status: "draft",
+    earnings: 0,
+    collectionId: null,
+    characters: [],
+    styleGuide: "",
+    pages: [],
+    seedTagline: b.tagline,
+    seedSummary: b.child,
+  }));
+}
+
+// Maps a signed-in account to the studio_data row it should read/write. Kirby's persona switch
+// already passes a stable id ("kirby"/"june"/"mara"); a real direct author login is matched to
+// that same id by email so both paths land on the same book data, with any other real author
+// account (created later in the admin panel) getting its own stable key.
+function resolveStudioKey(account) {
+  if (!account) return "kirby";
+  if (account.isKirby) return "kirby";
+  const email = (account.email || "").toLowerCase();
+  if (email === "june@littleamour.com") return "june";
+  if (email === "mara@littleamour.com") return "mara";
+  return "author_" + account.id;
+}
+
 const KIRBY_SEED = {
   gifts: 0,
   collections: [
@@ -2136,7 +2220,8 @@ const KCHIP = {
 let _pid = 0;
 const newId = () => "p" + Date.now() + "_" + (_pid++);
 
-function KirbyStudio({ go, onSignOut, account, homeSignal }) {
+function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
+  const skey = studioKey || "kirby";
   const [data, setData] = useState(KIRBY_SEED);
   const [loaded, setLoaded] = useState(false);
   const [openId, setOpenId] = useState(null);
@@ -2158,22 +2243,43 @@ function KirbyStudio({ go, onSignOut, account, homeSignal }) {
   useEffect(() => {
     (async () => {
       try {
-        const { data: row } = await supabase.from("studio_data").select("data").eq("id", "kirby").maybeSingle();
+        const { data: row } = await supabase.from("studio_data").select("data").eq("id", skey).maybeSingle();
         if (row && row.data) { setData(row.data); setLoaded(true); return; }
       } catch (e) { /* fall through to legacy local check */ }
       // No Supabase row yet — check for legacy browser-only data and adopt it once.
-      try {
-        const r = await window.storage.get("lab:studio:kirby:v2");
-        if (r && r.value) setData(JSON.parse(r.value));
-      } catch (e) { /* first visit */ }
+      if (skey === "kirby") {
+        try {
+          const r = await window.storage.get("lab:studio:kirby:v2");
+          if (r && r.value) setData(JSON.parse(r.value));
+        } catch (e) { /* first visit */ }
+      } else {
+        setData({ gifts: 0, collections: [], books: [], seededDraftIds: [] });
+      }
       setLoaded(true);
     })();
   }, []);
+
+  // One-time seed: pull in any "coming soon" titles already announced on the public site for
+  // this author and drop them into her studio as untouched drafts she can build out with Amora.
+  // Tracked via seededDraftIds so deleting a seeded draft doesn't bring it back on next load.
+  useEffect(() => {
+    if (!loaded) return;
+    const already = data.seededDraftIds || [];
+    const toSeed = seedDraftBooksFor(skey).filter((sb) => !already.includes(sb.id));
+    if (toSeed.length) {
+      setData((d) => ({
+        ...d,
+        books: [...d.books, ...toSeed],
+        seededDraftIds: [...(d.seededDraftIds || []), ...toSeed.map((b) => b.id)],
+      }));
+    }
+  }, [loaded, skey]);
+
   useEffect(() => {
     if (!loaded) return;
     const t = setTimeout(async () => {
       try {
-        await supabase.from("studio_data").upsert({ id: "kirby", data, updated_at: new Date().toISOString() });
+        await supabase.from("studio_data").upsert({ id: skey, data, updated_at: new Date().toISOString() });
         setSavedFlash(true);
         setTimeout(() => setSavedFlash(false), 2000);
       } catch (e) { /* non-fatal */ }
@@ -2293,7 +2399,7 @@ function KirbyStudio({ go, onSignOut, account, homeSignal }) {
           ) : null}
 
           <div className="row-between">
-            <div><p className="eyebrow plum">Author studio</p><h2>Good morning, Kirby.</h2></div>
+            <div><p className="eyebrow plum">Author studio</p><h2>Good morning, {(account?.name || "Author").split(" ")[0]}.</h2></div>
             <button className="btn-text" onClick={onSignOut}>Sign out</button>
           </div>
           <div className="dash-grid">
@@ -2502,8 +2608,13 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         const convo = msgs.concat({ role: "user", text }).slice(-12)
           .map((m) => `${m.role === "amora" ? "Amora" : "Kirby"}: ${m.text}`).join("\n");
 
+        // Detect a bulk request that hands over literal, pre-written text for two or more
+        // specifically-numbered pages at once (e.g. "create pages 22-24 ... Page 22 ... Page 23 ... Page 24").
+        const namedPages = parseNamedPages(text);
+        const isMultiPageReq = namedPages.length >= 2;
+
         // Detect image generation requests — stem-based so typos like "illiatrate" still match
-        const isImageReq = /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(text)
+        const isImageReq = !isMultiPageReq && /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(text)
           && /page|scene|spread|cover|illustrat|image|picture|background|setting/i.test(text);
 
         // Detect save-to-bible request
@@ -2511,7 +2622,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
 
         // Detect "make the Character Bible match the art already on the pages" request —
         // no fresh image attached, but the book already has generated/uploaded page art to look at.
-        const isSyncCharsFromPages = /character|bible/i.test(text)
+        const isSyncCharsFromPages = !isMultiPageReq && /character|bible/i.test(text)
           && /match|update|sync|fix|correct|same as|reflect/i.test(text)
           && /image|picture|art|illustrat|page|drawing/i.test(text);
 
@@ -2532,9 +2643,55 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             }
           }
 
+        } else if (isMultiPageReq) {
+          const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
+          const seed = collection ? collection.seed : null;
+          const charManifest = activeChars.length
+            ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+            : "(no named characters — environment/setting only)";
+
+          const existingImgs = book.pages.filter(p => p.img).map(p => p.img).slice(0, 3);
+          let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
+          if (!book.derivedStyle && existingImgs.length) {
+            push("amora", "Looking at your existing pages to lock in the visual style…");
+            const derived = await deriveStyleFromImages(existingImgs);
+            if (derived) { styleGuide = derived; setBook(b => ({ ...b, derivedStyle: derived })); }
+          }
+
+          push("amora", `On it — building pages ${namedPages.map(p => p.num).join(", ")} now, art to match each page's text. This'll take a moment…`);
+
+          let newPages = [...book.pages];
+          const built = [];
+          const failed = [];
+          for (const np of namedPages) {
+            try {
+              const idx = np.num - 1;
+              const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: np.text, pageNum: np.num });
+              const imgRes = await fetch("/api/image", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+              });
+              const imgData = await imgRes.json();
+              while (newPages.length < idx) newPages.push({ id: newId(), text: "", img: "" });
+              newPages[idx] = { id: (newPages[idx] && newPages[idx].id) || newId(), text: np.text, img: imgData.url || "" };
+              if (imgData.error) failed.push(np.num); else built.push(np.num);
+            } catch (e) {
+              failed.push(np.num);
+            }
+          }
+          setBook((b) => ({ ...b, pages: newPages }));
+          if (built.length) {
+            push("amora", `Done — page${built.length > 1 ? "s" : ""} ${built.join(", ")} ${built.length > 1 ? "are" : "is"} in the book with text and matching art locked in.${failed.length ? ` Page${failed.length > 1 ? "s" : ""} ${failed.join(", ")} saved with text but the art didn't generate — try regenerating ${failed.length > 1 ? "those" : "that one"} from the page editor.` : ""} Take a look in the page editor, and tell me if anything needs a touch-up.`);
+          } else {
+            push("amora", `I saved the text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")}, but the art didn't generate for any of them — give it another go and I'll try again.`);
+          }
+
         } else if (isImageReq) {
           const activeChars = (collection && collection.characters.length ? collection.characters : book.characters) || [];
           const seed = collection ? collection.seed : null;
+          const charManifest = activeChars.length
+            ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+            : "(no named characters — environment/setting only)";
 
           // Look at pages already in the book (uploaded or previously generated) to derive
           // the true visual style — text descriptions alone can't guarantee page-to-page consistency.
@@ -2559,46 +2716,12 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           let sceneMeta = { scene: text };
           try { sceneMeta = parseLoose(sceneRaw); } catch (_) { /* use defaults */ }
 
-          // Step 2: Build the locked consistency manifest client-side — always injected, never recalled from memory
-          const charManifest = activeChars.length
-            ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
-            : "(no named characters — environment/setting only)";
-
           const pageNum = book.pages.length + 1;
-          // Derive a page number style that fits the book's visual aesthetic
-          const pgNumStyle = (() => {
-            const sg = styleGuide.toLowerCase();
-            if (sg.includes("watercolour") || sg.includes("watercolor") || sg.includes("painted")) return "a small handwritten-style numeral in the bottom corner, in the book's ink colour, matching the painterly aesthetic";
-            if (sg.includes("ink") || sg.includes("pen") || sg.includes("sketch")) return "a small inked numeral in the bottom corner, matching the line-art style of the book";
-            if (sg.includes("flat") || sg.includes("vector") || sg.includes("minimal")) return "a small clean sans-serif numeral in the bottom corner, in a muted tone from the book's palette";
-            if (sg.includes("vintage") || sg.includes("retro") || sg.includes("classic")) return "a small vintage-style numeral in the bottom corner, in a warm sepia or aged tone";
-            if (sg.includes("collage") || sg.includes("mixed media")) return "a small hand-stamped or collaged numeral in the bottom corner";
-            if (sg.includes("digital") || sg.includes("bright") || sg.includes("bold")) return "a small bold rounded numeral in the bottom corner, in a complementary colour from the palette";
-            return "a small, gentle numeral in the bottom corner styled to match the book's art medium and colour palette";
-          })();
-          const lockedPrompt = [
-            `STYLE (locked, must not change between pages): ${styleGuide}`,
-            ``,
-            `CHARACTERS (locked, exact appearance must be identical on every page):`,
-            charManifest,
-            ``,
-            `SCENE (this page only): ${sceneMeta.scene || text}`,
-            ``,
-            `PAGE NUMBER: In the bottom corner of this illustration, include the numeral ${pageNum} as ${pgNumStyle}. The number should feel like a natural part of the illustration, not a label imposed on top.`,
-            ``,
-            `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages is essential.`,
-          ].join("\n");
-
-          // Negative prompt — what must never change or appear
-          const negativePrompt = [
-            "photo realistic", "3d render", "different clothing", "different hair", "different skin tone",
-            "inconsistent character", "style change", "different art style", "cartoon", "anime",
-            "changed proportions", "adult content", "violence", "scary imagery",
-          ].join(", ");
+          const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: sceneMeta.scene || text, pageNum });
 
           const imgRes = await fetch("/api/image", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: negativePrompt }),
+            body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
           });
           const imgData = await imgRes.json();
           if (imgData.error) {
@@ -3343,11 +3466,11 @@ export default function App() {
         onPickAuthor={(a) => setPersona({ id: a.id, name: a.name, email: account.email, photoUrl: a.photo || null, isKirby: false })}
         onPickAdmin={() => setPersona("admin")}
         onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
-    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} account={account} homeSignal={studioHome} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
-    else if (account?.isKirby && persona) page = <DashboardPage go={go} author={persona}
+    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} account={account} studioKey="kirby" homeSignal={studioHome} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
+    else if (account?.isKirby && persona) page = <DashboardPage go={go} author={persona} studioKey={persona.id}
         onSignOut={() => setPersona(null)}
         signOutLabel="← Back to switcher" />;
-    else page = <DashboardPage go={go} author={account} onSignOut={() => { setAccount(null); go("home"); }} />;
+    else page = <DashboardPage go={go} author={account} studioKey={resolveStudioKey(account)} onSignOut={() => { setAccount(null); go("home"); }} />;
   }
   else page = <NotFoundPage go={go} />;
 
