@@ -1762,7 +1762,7 @@ function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut }) {
 
         <div className="chooser-grid">
           {authors.map(a => (
-            <button key={a.id} className="chooser-card" onClick={() => onPickAuthor(a)}>
+            <button key={a.id} className="chooser-card" onClick={() => (a.id === "kirby" ? onPickAdmin() : onPickAuthor(a))}>
               {a.photo
                 ? <img src={a.photo} alt={a.name} className="chooser-avatar-img" />
                 : <div className="chooser-avatar" style={{background:`linear-gradient(135deg,${a.grad[0]},${a.grad[1]})`}}>
@@ -1838,7 +1838,7 @@ const DASH_SEED = {
     { id: "lighthouse", title: "The Lighthouse Keeps Its Promise", status: "changes", statusLabel: "Changes requested", earnings: 0 },
     { id: "untitled", title: "Untitled new idea", status: "draft", statusLabel: "Draft — in the AI studio", earnings: 0 },
   ],
-  earnings: { royalties: 342.18, gifts: 85.0, lifetime: 1204.36, nextPayout: "July 1" },
+  earnings: { royalties: 0, gifts: 0, lifetime: 0, nextPayout: "—" },
   feedback: [
     { from: "editor", tag: "required", text: "Page 7: 'the waves got angry' may read as frightening for our youngest readers. Could the storm stay outside the window while the lighthouse keeps its promise inside? The metaphor will still land — gently." },
     { from: "editor", tag: "suggestion", text: "Page 12 is gorgeous. Consider repeating 'the light stays on' as the closing line of the book — children love a promise they can memorize." },
@@ -1933,7 +1933,14 @@ function DashboardPage({ go, author, onSignOut, signOutLabel }) {
                   <strong>{b.title}</strong>
                   <span className={chip(b.status)}>{b.statusLabel}</span>
                 </div>
-                <button className="btn-text">{b.status === "draft" ? "Continue in studio →" : b.status === "changes" ? "View feedback →" : "View book →"}</button>
+                <button
+                  className="btn-text"
+                  onClick={() => {
+                    if (b.status === "draft") go("write");
+                    else if (b.status === "changes") document.getElementById("dash-feedback")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    else go("book", b.id);
+                  }}
+                >{b.status === "draft" ? "Continue in studio →" : b.status === "changes" ? "View feedback →" : "View book →"}</button>
               </div>
             ))}
             <button className="btn-gold" style={{ marginTop: 14 }} onClick={() => go("write")}>+ Start a new book with the AI studio</button>
@@ -1948,7 +1955,7 @@ function DashboardPage({ go, author, onSignOut, signOutLabel }) {
             <p className="fine">You keep 75% of every sale and 75% of net Amazon royalties. Statements itemize every book, every month.</p>
           </div>
 
-          <div className="dash-col">
+          <div className="dash-col" id="dash-feedback">
             <h3 className="bd-h">Editorial feedback — <em>The Lighthouse Keeps Its Promise</em></h3>
             <div className="thread">
               {thread.map((m, i) => (
@@ -2023,6 +2030,7 @@ function parseLoose(text) {
 }
 
 const KIRBY_SEED = {
+  gifts: 0,
   collections: [
     {
       id: "coll_bld", name: "Big Little Days",
@@ -2038,7 +2046,7 @@ const KIRBY_SEED = {
   ],
   books: [
     {
-      id: "papers", title: "Mama Has Papers Today", status: "published", earnings: 218.4,
+      id: "papers", title: "Mama Has Papers Today", status: "published", earnings: 0,
       collectionId: "coll_bld",
       characters: [
         { name: "Mama", desc: "Warm, tired-but-steady mother; dark hair loosely tied back; soft mustard cardigan and a small gold locket. Always warm and steady with Little One." },
@@ -2227,8 +2235,8 @@ function KirbyStudio({ go, onSignOut, account }) {
               <h3 className="bd-h" style={{ marginTop: 18 }}>Earnings</h3>
               <div className="earn-card">
                 <p><span>Book royalties</span><span>${royalties.toFixed(2)}</span></p>
-                <p><span>Reader gifts — 100% yours</span><span>$42.00</span></p>
-                <p className="co-total"><span>Next payout</span><span>July 1</span></p>
+                <p><span>Reader gifts — 100% yours</span><span>${(data.gifts || 0).toFixed(2)}</span></p>
+                <p className="co-total"><span>Next payout</span><span>—</span></p>
               </div>
               <p className="fine">You keep 75% of every sale and 75% of net Amazon royalties, plus all reader gifts.</p>
             </div>
