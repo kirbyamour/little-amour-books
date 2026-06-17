@@ -2699,54 +2699,64 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             push("amora", `I can't lock it yet — still missing ${missing.join(" and ")}. Fill that in on the Characters tab and tell me to lock it again, or I'll keep it open.`);
           }
 
-        } else if (isMultiPageReq && !book.bibleLocked) {
-          push("amora", lockGateMsg);
-
-        } else if (isMultiPageReq && !book.scriptApproved) {
-          push("amora", scriptGateMsg);
-
         } else if (isMultiPageReq) {
-          const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-          const seed = collection ? collection.seed : null;
-          const charManifest = activeChars.length
-            ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
-            : "(no named characters — environment/setting only)";
-
-          const existingImgs = book.pages.filter(p => p.img).map(p => p.img).slice(0, 3);
-          let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
-          if (!book.derivedStyle && existingImgs.length) {
-            push("amora", "Looking at your existing pages to lock in the visual style…");
-            const derived = await deriveStyleFromImages(existingImgs);
-            if (derived) { styleGuide = derived; setBook(b => ({ ...b, derivedStyle: derived })); }
-          }
-
-          push("amora", `On it — building pages ${namedPages.map(p => p.num).join(", ")} now, art to match each page's text. This'll take a moment…`);
-
+          // The literal page text the author handed over is data, not art — save it to the
+          // book immediately, no matter what the bible-lock/script-approval state is. Only
+          // the actual painting step below is gated, so a script paste always gets acknowledged.
           let newPages = [...book.pages];
-          const built = [];
-          const failed = [];
           for (const np of namedPages) {
-            try {
-              const idx = np.num - 1;
-              const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: np.text, pageNum: np.num });
-              const imgRes = await fetch("/api/image", {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
-              });
-              const imgData = await imgRes.json();
-              while (newPages.length < idx) newPages.push({ id: newId(), text: "", img: "" });
-              newPages[idx] = { id: (newPages[idx] && newPages[idx].id) || newId(), text: np.text, img: imgData.url || "" };
-              if (imgData.error) failed.push(np.num); else built.push(np.num);
-            } catch (e) {
-              failed.push(np.num);
-            }
+            const idx = np.num - 1;
+            while (newPages.length < idx) newPages.push({ id: newId(), text: "", img: "" });
+            newPages[idx] = { id: (newPages[idx] && newPages[idx].id) || newId(), text: np.text, img: (newPages[idx] && newPages[idx].img) || "" };
           }
           setBook((b) => ({ ...b, pages: newPages }));
-          if (built.length) {
-            push("amora", `Done — page${built.length > 1 ? "s" : ""} ${built.join(", ")} ${built.length > 1 ? "are" : "is"} in the book with text and matching art locked in.${failed.length ? ` Page${failed.length > 1 ? "s" : ""} ${failed.join(", ")} saved with text but the art didn't generate — try regenerating ${failed.length > 1 ? "those" : "that one"} from the page editor.` : ""} Take a look in the page editor, and tell me if anything needs a touch-up.`);
+
+          if (!book.bibleLocked) {
+            push("amora", `Got it — I saved your text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the book. ${lockGateMsg}`);
+          } else if (!book.scriptApproved) {
+            push("amora", `Got it — I saved your text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the book. ${scriptGateMsg}`);
           } else {
-            push("amora", `I saved the text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")}, but the art didn't generate for any of them — give it another go and I'll try again.`);
+            const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
+            const seed = collection ? collection.seed : null;
+            const charManifest = activeChars.length
+              ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+              : "(no named characters — environment/setting only)";
+
+            const existingImgs = newPages.filter(p => p.img).map(p => p.img).slice(0, 3);
+            let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
+            if (!book.derivedStyle && existingImgs.length) {
+              push("amora", "Looking at your existing pages to lock in the visual style…");
+              const derived = await deriveStyleFromImages(existingImgs);
+              if (derived) { styleGuide = derived; setBook(b => ({ ...b, derivedStyle: derived })); }
+            }
+
+            push("amora", `Text saved — now painting page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} to match. This'll take a moment…`);
+
+            const built = [];
+            const failed = [];
+            for (const np of namedPages) {
+              try {
+                const idx = np.num - 1;
+                const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: np.text, pageNum: np.num });
+                const imgRes = await fetch("/api/image", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+                });
+                const imgData = await imgRes.json();
+                newPages[idx] = { ...newPages[idx], img: imgData.url || newPages[idx].img };
+                if (imgData.error) failed.push(np.num); else built.push(np.num);
+              } catch (e) {
+                failed.push(np.num);
+              }
+            }
+            setBook((b) => ({ ...b, pages: newPages }));
+            if (built.length) {
+              push("amora", `Done — page${built.length > 1 ? "s" : ""} ${built.join(", ")} ${built.length > 1 ? "are" : "is"} in the book with text and matching art locked in.${failed.length ? ` Page${failed.length > 1 ? "s" : ""} ${failed.join(", ")} saved with text but the art didn't generate — try regenerating ${failed.length > 1 ? "those" : "that one"} from the page editor.` : ""} Take a look in the page editor, and tell me if anything needs a touch-up.`);
+            } else {
+              push("amora", `The text is saved, but the art didn't generate for any of those pages just now — try again from the page editor.`);
+            }
           }
+
 
         } else if (isWholeBookImageReq && !book.bibleLocked) {
           push("amora", lockGateMsg);
