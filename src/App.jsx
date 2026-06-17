@@ -2621,6 +2621,13 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         const isImageReq = !isMultiPageReq && /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(text)
           && /page|scene|spread|cover|illustrat|image|picture|background|setting/i.test(text);
 
+        // Within an image request, "do the whole book" reads very differently from "draw me
+        // a one-off scene" — it means paint every already-written page, not invent a single
+        // floating image untethered to the actual manuscript. Route it through the same
+        // gated batch-paint path as isMultiPageReq instead of the ad-hoc single-image branch.
+        const isWholeBookImageReq = isImageReq
+          && /\b(the book|all( of)? the pages|every page|whole book|each page|all of (it|them))\b/i.test(text);
+
         // Detect save-to-bible request
         const isSaveBible = text.toLowerCase().includes("save") && (text.toLowerCase().includes("character") || text.toLowerCase().includes("bible"));
 
@@ -2631,11 +2638,32 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         const isBuildBible = !isSaveBible && !isMultiPageReq && /character|bible|cast/i.test(text)
           && /creat|build|writ|generat|make|start|set up|come up with/i.test(text);
 
+        // Detect "lock the character bible" said in plain chat — this used to fall through to
+        // the generic free-text reply, which could happily say "I've locked it in!" without
+        // ever touching the book. Now it runs the exact same readiness check and state write
+        // as the "Lock Character Bible" button, so chat can never claim something the data
+        // doesn't back up.
+        const isLockBible = !isSaveBible && !isBuildBible && !isMultiPageReq
+          && /lock|finaliz|approve the bible|that's final/i.test(text)
+          && /character|bible|cast/i.test(text);
+
         // Detect "make the Character Bible match the art already on the pages" request —
         // no fresh image attached, but the book already has generated/uploaded page art to look at.
         const isSyncCharsFromPages = !isMultiPageReq && /character|bible/i.test(text)
           && /match|update|sync|fix|correct|same as|reflect/i.test(text)
           && /image|picture|art|illustrat|page|drawing/i.test(text);
+
+        // Detect a full manuscript paste — multiple distinct lines/paragraphs handed over at
+        // once with no other matched intent. Previously this fell straight into the generic
+        // chit-chat branch, which could only react in prose and never actually saved a word
+        // of it onto the book's pages — which read to the author as Amora ignoring the script.
+        const isScriptPaste = !isMultiPageReq && !isImageReq && !isSaveBible && !isBuildBible
+          && !isLockBible && !isSyncCharsFromPages
+          && text.split(/\n+/).map((l) => l.trim()).filter(Boolean).length >= 2
+          && text.length > 120;
+
+        const lockGateMsg = "Let's lock in your Character Bible and art style first — open the Characters tab, fill everyone in (and the book's style & feel), then tap \"Lock Character Bible.\" Once that's locked, every page I paint will actually match.";
+        const scriptGateMsg = "Your Bible's locked — good. Now let's finish the full script before any art: write out the pages you want, then use \"Approve script & paint all pages\" in the Page Editor. I'll paint everything in one matching pass right after, instead of page by page.";
 
         if (isSyncCharsFromPages) {
           const pageImgs = book.pages.filter((p) => p.img).map((p) => p.img);
@@ -2654,11 +2682,28 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             }
           }
 
+        } else if (isLockBible) {
+          const charsOk = book.characters.length > 0 && book.characters.every((c) => c.name && c.name.trim() && c.desc && c.desc.trim());
+          const styleOk = !!(book.styleGuide && book.styleGuide.trim());
+          if (charsOk && styleOk) {
+            setBook((b) => ({ ...b, bibleLocked: true }));
+            push("amora", `Locked it in — ${book.characters.map((c) => c.name).join(", ")}, with the style guide set. Every page I paint from here matches that exactly. Next: finish your script, then "Approve script & paint all pages."`);
+          } else {
+            const missing = [];
+            if (!book.characters.length) missing.push("at least one character");
+            else {
+              const incomplete = book.characters.filter((c) => !(c.name && c.name.trim()) || !(c.desc && c.desc.trim()));
+              if (incomplete.length) missing.push(`a full description for ${incomplete.map((c) => c.name || "an unnamed character").join(", ")}`);
+            }
+            if (!styleOk) missing.push("the book's style guide");
+            push("amora", `I can't lock it yet — still missing ${missing.join(" and ")}. Fill that in on the Characters tab and tell me to lock it again, or I'll keep it open.`);
+          }
+
         } else if (isMultiPageReq && !book.bibleLocked) {
-          push("amora", "Let's lock in your Character Bible and art style first — open the Characters tab, fill everyone in (and the book's style & feel), then tap \"Lock Character Bible.\" Once that's locked, every page I paint will actually match.");
+          push("amora", lockGateMsg);
 
         } else if (isMultiPageReq && !book.scriptApproved) {
-          push("amora", "Your Bible's locked — good. Now let's finish the full script before any art: write out the pages you want, then use \"Approve script & paint all pages\" in the Page Editor. I'll paint everything in one matching pass right after, instead of page by page.");
+          push("amora", scriptGateMsg);
 
         } else if (isMultiPageReq) {
           const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
@@ -2703,11 +2748,53 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             push("amora", `I saved the text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")}, but the art didn't generate for any of them — give it another go and I'll try again.`);
           }
 
+        } else if (isWholeBookImageReq && !book.bibleLocked) {
+          push("amora", lockGateMsg);
+
+        } else if (isWholeBookImageReq && !book.scriptApproved) {
+          const written = book.pages.filter((p) => p.text && p.text.trim()).length;
+          push("amora", written
+            ? `Your Bible's locked, and you've already got ${written} page${written > 1 ? "s" : ""} of real text sitting in the Page Editor — open it and tap "Approve script & paint all pages," and I'll paint every one of them from its actual words in a single matching pass.`
+            : "I don't have any page text yet to paint from — write out your pages (or paste the full script here) so I have real words to match the art to, then tell me to approve and paint.");
+
+        } else if (isWholeBookImageReq) {
+          const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
+          const seed = collection ? collection.seed : null;
+          const charManifest = activeChars.length
+            ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+            : "(no named characters — environment/setting only)";
+          let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
+
+          const targets = book.pages.map((p, i) => ({ p, i })).filter(({ p }) => p.text && p.text.trim() && !p.img);
+          if (!targets.length) {
+            push("amora", "Every page with real text already has art, or there's no page text yet to paint from — add or change some page text and ask me again.");
+          } else {
+            push("amora", `On it — painting ${targets.length} page${targets.length > 1 ? "s" : ""} from the actual text already in the book…`);
+            let newPages = [...book.pages];
+            const built = []; const failed = [];
+            for (const { p, i } of targets) {
+              try {
+                const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: p.text, pageNum: i + 1 });
+                const imgRes = await fetch("/api/image", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+                });
+                const imgData = await imgRes.json();
+                newPages[i] = { ...newPages[i], img: imgData.url || newPages[i].img };
+                if (imgData.error) failed.push(i + 1); else built.push(i + 1);
+              } catch (e) { failed.push(i + 1); }
+            }
+            setBook((b) => ({ ...b, pages: newPages }));
+            push("amora", built.length
+              ? `Done — painted page${built.length > 1 ? "s" : ""} ${built.join(", ")} straight from your real text.${failed.length ? ` Page${failed.length > 1 ? "s" : ""} ${failed.join(", ")} didn't generate — try regenerating from the page editor.` : ""}`
+              : `The art didn't generate for any of those pages just now — give it another try.`);
+          }
+
         } else if (isImageReq && !book.bibleLocked) {
-          push("amora", "Let's lock in your Character Bible and art style first — open the Characters tab, fill everyone in (and the book's style & feel), then tap \"Lock Character Bible.\" Once that's locked, every page I paint will actually match.");
+          push("amora", lockGateMsg);
 
         } else if (isImageReq && !book.scriptApproved) {
-          push("amora", "Your Bible's locked — good. Now let's finish the full script before any art: write out the pages you want, then use \"Approve script & paint all pages\" in the Page Editor. I'll paint everything in one matching pass right after, instead of page by page.");
+          push("amora", scriptGateMsg);
 
         } else if (isImageReq) {
           const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
@@ -2726,21 +2813,30 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             if (derived) { styleGuide = derived; setBook(b => ({ ...b, derivedStyle: derived })); }
           }
 
+          // If this request names a specific page that already has real text written for it,
+          // ground the art in that exact text instead of inventing a scene from the short chat
+          // request alone — otherwise the image stops matching the actual story.
+          const pageNumMatch = text.match(/page\s+(\d+)/i);
+          const namedPage = pageNumMatch ? book.pages[parseInt(pageNumMatch[1], 10) - 1] : null;
+
           push("amora", "On it — building that image now…");
 
-          // Step 1: Ask Amora ONLY for the scene description.
-          // Model is always Flux (seed-locked for consistency). We inject the full
-          // character manifest ourselves so nothing drifts from page to page.
-          const sceneRaw = await amora(
-            `The author wants to generate a picture-book illustration.\n\nCharacter Bible (already locked into the image — do NOT re-describe, just use names):\n${charManifest}\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}`,
-            AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 400
-          );
+          let sceneText = text;
+          if (namedPage && namedPage.text && namedPage.text.trim()) {
+            sceneText = namedPage.text;
+          } else {
+            // Step 1: Ask Amora ONLY for the scene description.
+            const sceneRaw = await amora(
+              `The author wants to generate a picture-book illustration.\n\nCharacter Bible (already locked into the image — do NOT re-describe, just use names):\n${charManifest}\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}`,
+              AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 400
+            );
+            let sceneMeta = { scene: text };
+            try { sceneMeta = parseLoose(sceneRaw); } catch (_) { /* use defaults */ }
+            sceneText = sceneMeta.scene || text;
+          }
 
-          let sceneMeta = { scene: text };
-          try { sceneMeta = parseLoose(sceneRaw); } catch (_) { /* use defaults */ }
-
-          const pageNum = book.pages.length + 1;
-          const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: sceneMeta.scene || text, pageNum });
+          const pageNum = namedPage ? (parseInt(pageNumMatch[1], 10)) : book.pages.length + 1;
+          const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum });
 
           const imgRes = await fetch("/api/image", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -2749,6 +2845,10 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           const imgData = await imgRes.json();
           if (imgData.error) {
             push("amora", `I couldn't generate that image just now — ${imgData.error}. Check that FAL_API_KEY or OPENAI_API_KEY is set in your Vercel environment variables.`);
+          } else if (namedPage) {
+            const idx = parseInt(pageNumMatch[1], 10) - 1;
+            setBook((b) => { const ps = [...b.pages]; ps[idx] = { ...ps[idx], img: imgData.url }; return { ...b, pages: ps }; });
+            push("amora", `Done — page ${pageNumMatch[1]}'s art now matches its actual text. Take a look in the page editor.`);
           } else {
             setMsgs((m) => [...m, { role: "amora", text: "Here it is ❖ Click “Add to book” to place it on a page.", imgUrl: imgData.url, model: imgData.model }]);
           }
@@ -2797,6 +2897,30 @@ Return ONLY JSON: {"characters":[{"name":"...","desc":"full visual + emotional d
             push("amora", "I don't have enough real detail yet to build actual characters — I'd rather leave it blank than make something up. Tell me who's in this book: names, what they look like, how they act, and I'll draft proper entries from that.");
           }
 
+        } else if (isScriptPaste) {
+          push("amora", "Got your script — let me split this into pages exactly as written…");
+          const splitRaw = await amora(
+            `The author just pasted what looks like the full manuscript for her picture book "${book.title}". Split it into individual page entries, in order. Use her EXACT words — do not rewrite, summarize, fix, or add anything. If she already numbered or clearly separated pages/spreads, respect those breaks; otherwise split on paragraph breaks.\n\nText:\n"""${text}"""\n\nReturn ONLY JSON: {"pages":["page 1 text", "page 2 text", ...]}`,
+            AMORA_SYS + " STRUCTURED MODE: output valid JSON only. Never alter the author's wording.", 2000
+          );
+          try {
+            const draft = parseLoose(splitRaw);
+            const pageTexts = Array.isArray(draft.pages) ? draft.pages.filter((t) => typeof t === "string" && t.trim()) : [];
+            if (pageTexts.length) {
+              setBook((b) => {
+                const newPages = pageTexts.map((t, i) => ({
+                  id: (b.pages[i] && b.pages[i].id) || newId(),
+                  text: t,
+                  img: (b.pages[i] && b.pages[i].img) || "",
+                }));
+                return { ...b, pages: newPages, scriptApproved: false };
+              });
+              push("amora", `Saved — that's ${pageTexts.length} page${pageTexts.length > 1 ? "s" : ""} of real text in the Page Editor now, exactly as you wrote it. Take a look, and once it's right, lock your Character Bible (if you haven't) and use "Approve script & paint all pages" so the art matches every word.`);
+            } else throw new Error("no pages");
+          } catch (e) {
+            push("amora", "I had trouble splitting that into pages just now — could you paste it again, or mark where each page should break (a blank line between them works)?");
+          }
+
         } else {
           const collContext = collection ? `\nCharacter collection: "${collection.name}". Style: ${collection.styleGuide}.` : "";
           const charBible = book.characters.length
@@ -2804,7 +2928,9 @@ Return ONLY JSON: {"characters":[{"name":"...","desc":"full visual + emotional d
             : "";
           const memoryContext = memoryRef.current ? `\n\nWhat you remember about this author from past sessions: ${memoryRef.current}` : "";
           const reply = await amora(
-            `You are guiding the author through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.${collContext}${charBible}${memoryContext}\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft or generate pages. You CAN generate illustration images — just tell the author to say something like "generate page 3 showing [scene]". Don't dump the whole book at once. End by inviting her next bit. Plain text only.`
+            `You are guiding the author through building a children's picture book, step by step. Current book title: "${book.title}". Existing characters: ${book.characters.map((c) => c.name).join(", ") || "none yet"}. Pages so far: ${book.pages.length}.${collContext}${charBible}${memoryContext}\n\nConversation:\n${convo}\n\nRespond as Amora with ONE warm, short next step or question. Move the book forward gently — help shape the idea, suggest a title when ready, develop characters, or offer to draft or generate pages. You CAN generate illustration images — just tell the author to say something like "generate page 3 showing [scene]". Don't dump the whole book at once. End by inviting her next bit. Plain text only.
+
+CRITICAL: You have NOT locked, saved, added, or generated anything by writing this reply — plain conversation never changes the book. NEVER say or imply you've "locked it in," "saved that," "added the characters," or "generated the images" unless you are certain it already happened earlier in this conversation. If she describes characters here, tell her to say "build the character bible" so it actually gets saved. If she wants it locked, tell her to say "lock the character bible." If she just pasted a full script and nothing was saved, tell her plainly and ask her to resend it.`
           );
           push("amora", reply);
           updateMemory(text, reply);
