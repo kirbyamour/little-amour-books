@@ -429,7 +429,25 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       if (pg.img && (pg.img.startsWith("data:") || pg.img.startsWith("http"))) {
         try {
           const fmt = pg.img.includes("png") ? "PNG" : "JPEG";
-          doc.addImage(pg.img, fmt, bleed, bleed, 215.9, 215.9 * 0.68);
+          const boxW = 215.9, boxH = 215.9 * 0.68;
+          // AI-painted pages are all portrait_4_3, so they've always filled this box cleanly.
+          // An author's own uploaded photo (different camera, different crop) won't reliably
+          // match that ratio — stretching it to fill the box would distort it. Fit it inside
+          // the box preserving its real aspect ratio instead, centered, with the page's own
+          // background showing on whichever side is left over.
+          let drawW = boxW, drawH = boxH, drawX = bleed, drawY = bleed;
+          try {
+            const props = doc.getImageProperties(pg.img);
+            if (props && props.width && props.height) {
+              const srcRatio = props.width / props.height;
+              const boxRatio = boxW / boxH;
+              if (srcRatio > boxRatio) { drawW = boxW; drawH = boxW / srcRatio; }
+              else { drawH = boxH; drawW = boxH * srcRatio; }
+              drawX = bleed + (boxW - drawW) / 2;
+              drawY = bleed + (boxH - drawH) / 2;
+            }
+          } catch (e) { /* couldn't read dimensions — fall back to filling the box as before */ }
+          doc.addImage(pg.img, fmt, drawX, drawY, drawW, drawH);
         } catch(e) { /* image unavailable — skip */ }
       }
       if (pg.text) {

@@ -3231,6 +3231,38 @@ CRITICAL: You have NOT locked, saved, added, or generated anything by writing th
 }
 
 /* ---------------- Book editor: drag-drop pages, per-page chat, bible, consistency ---------------- */
+// Shared by the per-page "upload your own image" control — same downscale-then-fallback
+// approach already used for whole-book page uploads, so a manually supplied photo behaves
+// the same way a generated one does everywhere downstream (Publishing, Supabase, etc).
+function resizeImageFile(file, max = 1400) {
+  return new Promise((res) => {
+    const readRaw = () => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => res(null);
+      fr.readAsDataURL(file);
+    };
+    try {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      let done = false;
+      const finish = (val) => { if (!done) { done = true; try { URL.revokeObjectURL(url); } catch (e) {} res(val); } };
+      img.onload = () => {
+        try {
+          const s = Math.min(1, max / Math.max(img.width, img.height));
+          const c = document.createElement("canvas");
+          c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          finish(c.toDataURL("image/jpeg", 0.85));
+        } catch (e) { finish(null); readRaw(); }
+      };
+      img.onerror = () => { try { URL.revokeObjectURL(url); } catch (e) {} readRaw(); };
+      setTimeout(() => { if (!done) { img.onload = null; readRaw(); } }, 4000);
+      img.src = url;
+    } catch (e) { readRaw(); }
+  });
+}
+
 function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onPublish, savedFlash }) {
   const [tab, setTab] = useState("pages");
   const [report, setReport] = useState(null);
@@ -3241,6 +3273,8 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   const [portraitErr, setPortraitErr] = useState({}); // character index -> error string
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchNote, setBatchNote] = useState("");
+  const [pgUploadBusy, setPgUploadBusy] = useState({}); // page id -> true while reading an author-supplied image
+  const pageFileInputs = useRef({}); // page id -> <input type="file"> ref, one per page row
   const drag = useRef(null);
 
   // Bible-lock + script-approval gates. Locking is a real workflow state now, not just
@@ -3259,6 +3293,30 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   const setPage = (id, patch) => setBook((b) => ({ ...b, pages: b.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   const addPage = () => setBook((b) => ({ ...b, pages: [...b.pages, { id: newId(), text: "", img: "" }] }));
   const removePage = (id) => setBook((b) => ({ ...b, pages: b.pages.filter((p) => p.id !== id) }));
+
+  // Lets an author drop in their own finished art for a page instead of painting with Amora —
+  // e.g. Kirby finishing "Mama Has Papers Today" with her own illustrations for pages the AI
+  // pipeline hasn't matched yet. Goes through the same resize path as whole-book uploads so
+  // the result is just a normal data URI in p.img, identical to an AI-painted page everywhere
+  // downstream (Page Editor, Publishing export, Supabase storage).
+  const uploadPageImage = async (p, file) => {
+    if (!file || !file.type || !file.type.startsWith("image/")) {
+      setPgImgErr((prev) => ({ ...prev, [p.id]: "That doesn't look like an image file — try a JPG or PNG." }));
+      return;
+    }
+    setPgImgErr((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
+    setPgUploadBusy((prev) => ({ ...prev, [p.id]: true }));
+    try {
+      const dataUrl = await resizeImageFile(file);
+      if (!dataUrl) {
+        setPgImgErr((prev) => ({ ...prev, [p.id]: "Couldn't read that image — try a smaller file or a different format." }));
+        return;
+      }
+      setPage(p.id, { img: dataUrl });
+    } finally {
+      setPgUploadBusy((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
+    }
+  };
 
   // Generates (or regenerates, with optional author feedback) the illustration for ONE page,
   // referencing the Character Bible and every other image already in the book for consistency.
@@ -3476,6 +3534,12 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                     <button className="btn-text soft" disabled={!!pgImgBusy[p.id] || !bibleLocked || !scriptApproved} onClick={() => genPageImage(p, i)}>
                       {pgImgBusy[p.id] ? "painting…" : p.img ? "regenerate image" : "generate image"}
                     </button>
+                    <button className="btn-text soft" disabled={!!pgUploadBusy[p.id]} onClick={() => pageFileInputs.current[p.id] && pageFileInputs.current[p.id].click()}>
+                      {pgUploadBusy[p.id] ? "reading…" : p.img ? "replace with my own image" : "upload my own image"}
+                    </button>
+                    <input type="file" accept="image/*" style={{ display: "none" }}
+                      ref={(el) => { pageFileInputs.current[p.id] = el; }}
+                      onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) uploadPageImage(p, f); }} />
                     {pgImgErr[p.id] ? <span className="fine" style={{ color: "#9E4A44" }}>{pgImgErr[p.id]}</span> : null}
                   </div>
                   <PageChat book={book} page={p}
