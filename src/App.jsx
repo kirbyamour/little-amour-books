@@ -2093,26 +2093,20 @@ async function genCharacterPortrait(character, styleGuide, seed) {
 }
 
 // Picks a page-number rendering style that matches the book's visual aesthetic.
-function pageNumberStyleFor(styleGuide) {
-  const sg = (styleGuide || "").toLowerCase();
-  if (sg.includes("watercolour") || sg.includes("watercolor") || sg.includes("painted")) return "a small handwritten-style numeral in the bottom corner, in the book's ink colour, matching the painterly aesthetic";
-  if (sg.includes("ink") || sg.includes("pen") || sg.includes("sketch")) return "a small inked numeral in the bottom corner, matching the line-art style of the book";
-  if (sg.includes("flat") || sg.includes("vector") || sg.includes("minimal")) return "a small clean sans-serif numeral in the bottom corner, in a muted tone from the book's palette";
-  if (sg.includes("vintage") || sg.includes("retro") || sg.includes("classic")) return "a small vintage-style numeral in the bottom corner, in a warm sepia or aged tone";
-  if (sg.includes("collage") || sg.includes("mixed media")) return "a small hand-stamped or collaged numeral in the bottom corner";
-  if (sg.includes("digital") || sg.includes("bright") || sg.includes("bold")) return "a small bold rounded numeral in the bottom corner, in a complementary colour from the palette";
-  return "a small, gentle numeral in the bottom corner styled to match the book's art medium and colour palette";
-}
-
 const ILLUSTRATION_NEGATIVE_PROMPT = [
   "photo realistic", "3d render", "different clothing", "different hair", "different skin tone",
   "inconsistent character", "style change", "different art style", "cartoon", "anime",
   "changed proportions", "adult content", "violence", "scary imagery",
+  "text", "letters", "words", "writing", "typography", "caption", "numbers", "watermark", "title card",
 ].join(", ");
 
 // Builds the full locked, consistency-enforced prompt sent to /api/image for one page.
+// The page's printed caption text and page number are NOT part of this prompt on purpose —
+// they're rendered deterministically in code at export time (see Publishing.jsx makeBookPDF),
+// in the same font/position/style on every single page, every time, with no chance of a typo
+// or drift. Asking a diffusion model to paint exact words is unreliable even on good models,
+// so the illustration's only job is the picture — no lettering, titles, or numerals at all.
 function buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum }) {
-  const pgNumStyle = pageNumberStyleFor(styleGuide);
   return [
     `STYLE (locked, must not change between pages): ${styleGuide}`,
     ``,
@@ -2121,7 +2115,7 @@ function buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pa
     ``,
     `SCENE (this page only): ${sceneText}`,
     ``,
-    `PAGE NUMBER: In the bottom corner of this illustration, include the numeral ${pageNum} as ${pgNumStyle}. The number should feel like a natural part of the illustration, not a label imposed on top.`,
+    `IMPORTANT: Illustration only — no text, letters, words, numbers, captions, titles, or lettering of any kind anywhere in the image. The story text and page number are added separately afterward in a fixed, consistent style; the artwork must not attempt to render them.`,
     ``,
     `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages is essential.`,
   ].join("\n");
