@@ -3288,9 +3288,17 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       // otherwise it's just the first-time request and the page text speaks for itself.
       const sceneText = (feedback && p.img) ? `${p.text}\n\nRevision note from the author — apply this exact change: ${feedback}` : p.text;
       const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum: i + 1 });
+      // Anchor to an existing page's actual painted image (not just a text style
+      // description) so background richness/texture/detail carries over instead
+      // of being re-described from scratch every time. Experimental — strength is
+      // tuned server-side, not assumed to be correct on the first try.
+      const referenceImageUrl = existingImgs[0];
       const imgRes = await fetch("/api/image", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+        body: JSON.stringify({
+          prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT,
+          ...(referenceImageUrl ? { referenceImageUrl } : {}),
+        }),
       });
       const imgData = await imgRes.json();
       if (imgData.error) { setPgImgErr((prev) => ({ ...prev, [p.id]: imgData.error })); return false; }
