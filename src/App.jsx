@@ -2686,7 +2686,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           const charsOk = book.characters.length > 0 && book.characters.every((c) => c.name && c.name.trim() && c.desc && c.desc.trim());
           const styleOk = !!(book.styleGuide && book.styleGuide.trim());
           if (charsOk && styleOk) {
-            setBook((b) => ({ ...b, bibleLocked: true }));
+            setBook((b) => ({ ...b, bibleLocked: true, seed: b.seed || (Math.floor(Math.random() * 900000) + 100000) }));
             push("amora", `Locked it in — ${book.characters.map((c) => c.name).join(", ")}, with the style guide set. Every page I paint from here matches that exactly. Next: finish your script, then "Approve script & paint all pages."`);
           } else {
             const missing = [];
@@ -2717,7 +2717,8 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             push("amora", `Got it — I saved your text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the book. ${scriptGateMsg}`);
           } else {
             const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-            const seed = collection ? collection.seed : null;
+            let seed = collection ? collection.seed : book.seed;
+            if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
             const charManifest = activeChars.length
               ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
               : "(no named characters — environment/setting only)";
@@ -2769,7 +2770,8 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
 
         } else if (isWholeBookImageReq) {
           const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-          const seed = collection ? collection.seed : null;
+          let seed = collection ? collection.seed : book.seed;
+            if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
           const charManifest = activeChars.length
             ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
             : "(no named characters — environment/setting only)";
@@ -2808,7 +2810,8 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
 
         } else if (isImageReq) {
           const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-          const seed = collection ? collection.seed : null;
+          let seed = collection ? collection.seed : book.seed;
+            if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
           const charManifest = activeChars.length
             ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
             : "(no named characters — environment/setting only)";
@@ -3256,7 +3259,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   const scriptApproved = !!book.scriptApproved;
   const hasScript = book.pages.length > 0 && book.pages.every((p) => p.text && p.text.trim());
 
-  const lockBible = () => { if (bibleReady) setBook((b) => ({ ...b, bibleLocked: true })); };
+  const lockBible = () => { if (bibleReady) setBook((b) => ({ ...b, bibleLocked: true, seed: b.seed || (Math.floor(Math.random() * 900000) + 100000) })); };
   const unlockBible = () => setBook((b) => ({ ...b, bibleLocked: false, scriptApproved: false }));
 
   const setPage = (id, patch) => setBook((b) => ({ ...b, pages: b.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
@@ -3279,7 +3282,8 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       const charManifest = activeChars.length
         ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
         : "(no named characters — environment/setting only)";
-      const seed = collection ? collection.seed : null;
+      let seed = collection ? collection.seed : book.seed;
+            if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
       let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
       const existingImgs = book.pages.filter((pg) => pg.img && pg.id !== p.id).map((pg) => pg.img).slice(0, 3);
       if (!book.derivedStyle && existingImgs.length) {
@@ -3351,7 +3355,9 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
     setPortraitErr((prev) => { const n = { ...prev }; delete n[i]; return n; });
     try {
       const styleGuide = collection?.styleGuide || book.derivedStyle || book.styleGuide || "";
-      const url = await genCharacterPortrait(c, styleGuide, collection?.seed || null);
+      let seed = collection?.seed || book.seed;
+      if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
+      const url = await genCharacterPortrait(c, styleGuide, seed);
       setChar(i, { img: url });
     } catch (e) {
       // Record the failure so the lazy-fill effect below moves on to other characters
