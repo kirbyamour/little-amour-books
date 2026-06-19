@@ -2092,6 +2092,66 @@ async function genCharacterPortrait(character, styleGuide, seed) {
   return data.url;
 }
 
+// Generates one style-anchor sample image for a collection that hasn't been trained yet.
+// Deliberately has NO named characters in it — only the locked style guide applied to a
+// generic warm domestic scene. This matters: a style LoRA (see train-style.js) should
+// learn "what this looks like," not "who these people are." Mixing character identity
+// into the training set would bias the trained style toward one character's specific
+// face/pose instead of the illustration technique itself.
+async function genStyleSample(styleGuide, sceneIdea, seed) {
+  const prompt = [
+    `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
+    ``,
+    `Create a single picture-book illustration, with no named characters, in this exact style, depicting: ${sceneIdea}.`,
+    ``,
+    `No text, no letters, no watermark — illustration only.`,
+  ].join("\n");
+  const negative_prompt = [
+    "text", "letters", "words", "writing", "watermark", "photo realistic", "3d render",
+    "adult content", "violence", "scary imagery",
+  ].join(", ");
+  const res = await fetch("/api/image", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, seed, negative_prompt }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.url;
+}
+
+// Four varied, character-free domestic scenes — enough visual variety for the LoRA to
+// learn "the style" rather than memorizing one composition.
+const STYLE_SAMPLE_SCENES = [
+  "a cozy reading nook with soft morning light through a window",
+  "a quiet bedroom at night with a small nightlight glowing warmly",
+  "a kitchen table set for breakfast with steam rising from a mug",
+  "a garden path scattered with autumn leaves under a pale sky",
+];
+
+// Kicks off LoRA style training (fal-ai/flux-lora-fast-training via train-style.js) on a
+// set of approved sample image URLs. Returns the fal.ai request id — training takes
+// several minutes, so this does not block; the caller polls with checkStyleTrainingStatus.
+async function startStyleTraining(images, triggerWord) {
+  const res = await fetch("/api/train-style", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "start", images, triggerWord }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.requestId;
+}
+
+// Polls one training job. Returns { status: "training" | "ready" | "failed", loraUrl? }.
+async function checkStyleTrainingStatus(requestId) {
+  const res = await fetch("/api/train-style", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "status", requestId }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
 // Picks a page-number rendering style that matches the book's visual aesthetic.
 const ILLUSTRATION_NEGATIVE_PROMPT = [
   "photo realistic", "3d render", "different clothing", "different hair", "different skin tone",
@@ -2226,6 +2286,8 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
   const [savedFlash, setSavedFlash] = useState(false);
   const [portraitBusy, setPortraitBusy] = useState({}); // "collId:charIndex" -> true while generating
   const [editingCollId, setEditingCollId] = useState(null); // id of the collection currently open for editing
+  const [styleSetupBusy, setStyleSetupBusy] = useState({}); // collId (or collId:sampleIdx) -> true while generating
+  const [styleSetupErr, setStyleSetupErr] = useState({}); // collId -> error message from sample/training calls
 
   // Clicking "My studio" in the global nav bumps homeSignal — jump back to the dashboard list
   // no matter how deep in the editor/Amora/publish flow we currently are.
@@ -2300,6 +2362,98 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
   const setCollStyleGuide = (collId, styleGuide) => setCollections((cs) => cs.map((c) => (c.id === collId ? { ...c, styleGuide } : c)));
   const regenPortrait = (collId, i) => setCollChar(collId, i, { img: null }); // clearing img lets the lazy-portrait effect repaint it from the latest name/desc
 
+  // --- Mandatory style-setup flow for NEW collections (Kirby's call: an author should
+  // train a real style LoRA before writing a single page, not derive "style" reactively
+  // from finished pages after the fact). loraStatus drives which panel the collection
+  // card shows: "sampling" -> generate/approve anchor images, "training" -> polling,
+  // "ready" -> unlocked, "failed" -> retry without being a permanent dead end.
+  const startNewCollection = () => {
+    const name = (prompt("Name this character collection:") || "").trim();
+    if (!name) return;
+    const id = "coll_" + Date.now();
+    const seed = Math.floor(Math.random() * 900000) + 100000;
+    // A made-up token, not a real word — keeps the trained style tied to a trigger that
+    // won't collide with ordinary prompt language.
+    const loraTriggerWord = "amoralora" + Math.floor(Math.random() * 9000 + 1000);
+    setCollections((cs) => [...cs, {
+      id, name, styleGuide: "", modelHint: "auto", seed,
+      characters: [{ name: "New character", desc: "" }],
+      loraStatus: "sampling", loraUrl: null, loraTriggerWord, loraRequestId: null, styleSamples: [],
+    }]);
+    setEditingCollId(id);
+  };
+
+  const generateStyleSamples = async (collId) => {
+    const coll = collections.find((c) => c.id === collId);
+    if (!coll) return;
+    setStyleSetupBusy((b) => ({ ...b, [collId]: true }));
+    try {
+      const urls = await Promise.all(
+        STYLE_SAMPLE_SCENES.map((scene, i) => genStyleSample(coll.styleGuide, scene, (coll.seed || 0) + i))
+      );
+      setCollections((cs) => cs.map((c) => c.id === collId
+        ? { ...c, styleSamples: urls.map((url) => ({ url, approved: true })) }
+        : c));
+    } catch (e) {
+      setStyleSetupErr((p) => ({ ...p, [collId]: e.message || "Couldn't generate style samples." }));
+    } finally {
+      setStyleSetupBusy((b) => { const n = { ...b }; delete n[collId]; return n; });
+    }
+  };
+
+  const redoStyleSample = async (collId, idx) => {
+    const coll = collections.find((c) => c.id === collId);
+    if (!coll) return;
+    const key = collId + ":" + idx;
+    setStyleSetupBusy((b) => ({ ...b, [key]: true }));
+    try {
+      const url = await genStyleSample(coll.styleGuide, STYLE_SAMPLE_SCENES[idx], (coll.seed || 0) + idx + Date.now() % 1000);
+      setCollections((cs) => cs.map((c) => c.id === collId
+        ? { ...c, styleSamples: c.styleSamples.map((s, i) => i === idx ? { url, approved: true } : s) }
+        : c));
+    } catch (e) {
+      setStyleSetupErr((p) => ({ ...p, [collId]: e.message || "Couldn't regenerate that sample." }));
+    } finally {
+      setStyleSetupBusy((b) => { const n = { ...b }; delete n[key]; return n; });
+    }
+  };
+
+  const kickoffTraining = async (collId) => {
+    const coll = collections.find((c) => c.id === collId);
+    if (!coll || !coll.styleSamples || coll.styleSamples.length < 4) return;
+    setStyleSetupErr((p) => { const n = { ...p }; delete n[collId]; return n; });
+    try {
+      const requestId = await startStyleTraining(coll.styleSamples.map((s) => s.url), coll.loraTriggerWord);
+      setCollections((cs) => cs.map((c) => c.id === collId ? { ...c, loraStatus: "training", loraRequestId: requestId } : c));
+    } catch (e) {
+      setStyleSetupErr((p) => ({ ...p, [collId]: e.message || "Couldn't start training." }));
+    }
+  };
+
+  // Retroactive path for collections that already have finished, painted pages (e.g. Big
+  // Little Days) — complementary to the mandatory upfront flow above, not a replacement.
+  // Uses real pages already on the page as the training set instead of generating samples.
+  const trainStyleFromExistingPages = async (collId) => {
+    const coll = collections.find((c) => c.id === collId);
+    if (!coll) return;
+    const sourceBook = data.books.find((b) => b.collectionId === collId && (b.pages || []).some((p) => p.img));
+    const images = (sourceBook?.pages || []).map((p) => p.img).filter(Boolean).slice(0, 8);
+    if (images.length < 4) {
+      setStyleSetupErr((p) => ({ ...p, [collId]: "Need at least 4 painted pages in a book using this collection to train from." }));
+      return;
+    }
+    const loraTriggerWord = coll.loraTriggerWord || ("amoralora" + Math.floor(Math.random() * 9000 + 1000));
+    setStyleSetupErr((p) => { const n = { ...p }; delete n[collId]; return n; });
+    try {
+      const requestId = await startStyleTraining(images, loraTriggerWord);
+      setCollections((cs) => cs.map((c) => c.id === collId
+        ? { ...c, loraStatus: "training", loraRequestId: requestId, loraTriggerWord }
+        : c));
+    } catch (e) {
+      setStyleSetupErr((p) => ({ ...p, [collId]: e.message || "Couldn't start training." }));
+    }
+  };
+
   // Lazily fill in missing character reference portraits, one at a time, and save once generated.
   useEffect(() => {
     if (!loaded) return;
@@ -2324,6 +2478,38 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
       }
     }
   }, [loaded, collections, portraitBusy]);
+
+  // Polls any collection currently mid-training. Keyed on collId:requestId pairs rather
+  // than the whole collections array, so unrelated edits elsewhere (typing in a style
+  // guide, renaming a book) don't keep tearing down and restarting this interval.
+  const trainingKey = collections
+    .filter((c) => c.loraStatus === "training" && c.loraRequestId)
+    .map((c) => c.id + ":" + c.loraRequestId)
+    .join(",");
+  useEffect(() => {
+    if (!loaded || !trainingKey) return;
+    const pairs = trainingKey.split(",").map((s) => {
+      const idx = s.lastIndexOf(":");
+      return { collId: s.slice(0, idx), requestId: s.slice(idx + 1) };
+    });
+    const poll = async () => {
+      for (const { collId, requestId } of pairs) {
+        try {
+          const result = await checkStyleTrainingStatus(requestId);
+          if (result.status === "ready") {
+            setCollections((cs) => cs.map((c) => c.id === collId
+              ? { ...c, loraStatus: "ready", loraUrl: result.loraUrl, loraRequestId: null }
+              : c));
+          } else if (result.status === "failed") {
+            setCollections((cs) => cs.map((c) => c.id === collId ? { ...c, loraStatus: "failed" } : c));
+            setStyleSetupErr((p) => ({ ...p, [collId]: result.error || "Training failed." }));
+          }
+        } catch (e) { /* transient — try again on the next tick */ }
+      }
+    };
+    const t = setInterval(poll, 15000);
+    return () => clearInterval(t);
+  }, [loaded, trainingKey]);
 
   const createBookWithCollection = (collId) => {
     const coll = collections.find((c) => c.id === collId);
@@ -2428,8 +2614,10 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
             <div className="dash-col">
               <h3 className="bd-h">Character Collections</h3>
               {collections.length === 0 ? (
-                <p className="fine">Your character universes will appear here. Once you've built your first book's characters with Amora, save them as a collection and reuse them in any future book.</p>
-              ) : collections.map((c) => (
+                <p className="fine">Your character universes will appear here. Start one below — you'll set its style and train it before writing any pages, so even page 1 matches.</p>
+              ) : null}
+              <button className="btn-line dark" style={{ marginBottom: 12 }} onClick={startNewCollection}>+ New character collection</button>
+              {collections.map((c) => (
                 <div key={c.id} className="coll-card">
                   <div className="coll-card-head">
                     <strong>{c.name}</strong>
@@ -2479,8 +2667,61 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
                       {c.styleGuide ? <p className="fine coll-style">{c.styleGuide}</p> : null}
                     </>
                   )}
-                  <button className="btn-text" style={{ marginTop: 4 }} onClick={() => createBookWithCollection(c.id)}>
-                    Start a book with these characters →
+                  {c.loraStatus ? (
+                    <div className="lora-panel">
+                      {c.loraStatus === "sampling" ? (
+                        <>
+                          <p className="fine" style={{ margin: "6px 0" }}>
+                            Before any book starts: generate a few style-anchor images and train a real style model on them, so page 1 already matches — not just page 22.
+                          </p>
+                          {(!c.styleSamples || c.styleSamples.length === 0) ? (
+                            <button className="btn-text soft" disabled={!!styleSetupBusy[c.id]} onClick={() => generateStyleSamples(c.id)}>
+                              {styleSetupBusy[c.id] ? "painting samples…" : "Generate 4 style samples"}
+                            </button>
+                          ) : (
+                            <>
+                              <div className="lora-samples">
+                                {c.styleSamples.map((s, i) => (
+                                  <div key={i} className="lora-sample">
+                                    <img src={s.url} alt={`style sample ${i + 1}`} />
+                                    <button className="btn-text soft" disabled={!!styleSetupBusy[c.id + ":" + i]} onClick={() => redoStyleSample(c.id, i)}>
+                                      {styleSetupBusy[c.id + ":" + i] ? "…" : "redo"}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                              <button className="btn-gold" style={{ marginTop: 8 }} onClick={() => kickoffTraining(c.id)}>
+                                Train this style (~$2, 5–15 min) →
+                              </button>
+                            </>
+                          )}
+                        </>
+                      ) : c.loraStatus === "training" ? (
+                        <p className="fine" style={{ margin: "6px 0" }}>
+                          ⏳ Training your style — usually 5–15 minutes. Keep working elsewhere; this updates on its own.
+                        </p>
+                      ) : c.loraStatus === "ready" ? (
+                        <p className="fine coll-style" style={{ margin: "6px 0" }}>✦ Style trained — locked for every page, starting with page 1.</p>
+                      ) : c.loraStatus === "failed" ? (
+                        <>
+                          <p className="fine" style={{ margin: "6px 0", color: "#B5533C" }}>Training failed. You can retry, or start a book now using the description-based style instead.</p>
+                          <button className="btn-text soft" onClick={() => kickoffTraining(c.id)}>Retry training</button>
+                        </>
+                      ) : null}
+                      {styleSetupErr[c.id] ? <p className="fine" style={{ color: "#B5533C" }}>{styleSetupErr[c.id]}</p> : null}
+                    </div>
+                  ) : (
+                    <button className="btn-text soft" style={{ marginTop: 4, display: "block" }} onClick={() => trainStyleFromExistingPages(c.id)}>
+                      Train style from finished pages →
+                    </button>
+                  )}
+                  <button
+                    className="btn-text"
+                    style={{ marginTop: 4 }}
+                    disabled={c.loraStatus === "sampling" || c.loraStatus === "training"}
+                    onClick={() => createBookWithCollection(c.id)}
+                  >
+                    {c.loraStatus === "sampling" || c.loraStatus === "training" ? "Finish style setup first" : "Start a book with these characters →"}
                   </button>
                 </div>
               ))}
@@ -2500,7 +2741,8 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
 
   /* ---------------- PUBLISH ---------------- */
   if (view === "publish" && book) {
-    return <PublishingModule book={book} setBook={setBook} author={{ name: data.name || "Kirby" }} onBack={() => setView("list")} />;
+    const pubColl = collections.find((c) => c.id === book?.collectionId) || null;
+    return <PublishingModule book={book} setBook={setBook} author={{ name: data.name || "Kirby" }} collection={pubColl} onBack={() => setView("list")} />;
   }
 
   /* ---------------- AMORA BUILD ---------------- */
@@ -3351,11 +3593,15 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       // of being re-described from scratch every time. Experimental — strength is
       // tuned server-side, not assumed to be correct on the first try.
       const referenceImageUrl = existingImgs[0];
+      // A trained style LoRA (collection.loraStatus === "ready") takes priority over the
+      // reference-image path: it decouples style from content at the model level instead
+      // of fighting the single strength dial, so it's used whenever it's available.
+      const loraUrl = collection && collection.loraStatus === "ready" ? collection.loraUrl : null;
       const imgRes = await fetch("/api/image", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT,
-          ...(referenceImageUrl ? { referenceImageUrl } : {}),
+          ...(loraUrl ? { loraUrl } : referenceImageUrl ? { referenceImageUrl } : {}),
         }),
       });
       const imgData = await imgRes.json();
@@ -4225,6 +4471,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .coll-card-head { display: flex; justify-content: space-between; align-items: center; }
 .coll-card-head strong { font-family: var(--display); font-size: 15px; }
 .coll-style { opacity: 0.7; font-style: italic; }
+.lora-panel { background: #fff; border: 1px solid #EBDFCC; border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+.lora-samples { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.lora-sample { display: flex; flex-direction: column; gap: 4px; }
+.lora-sample img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; }
 /* Generated image in chat */
 .gen-img-wrap { margin: 6px 0 10px; }
 .gen-img { width: 100%; border-radius: 10px; display: block; }

@@ -1,6 +1,80 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import JSZip from "jszip";
 import { jsPDF } from "jspdf";
+
+// Same downscale-then-fallback pattern used for page-image uploads in App.jsx (kept as a
+// local copy here since the two files don't share a module) — canvas downscale first,
+// raw FileReader if that fails (e.g. HEIC on Chrome).
+function resizeImageFile(file, max = 1600) {
+  return new Promise((res) => {
+    const readRaw = () => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.onerror = () => res(null);
+      fr.readAsDataURL(file);
+    };
+    try {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      let done = false;
+      const finish = (val) => { if (!done) { done = true; try { URL.revokeObjectURL(url); } catch (e) {} res(val); } };
+      img.onload = () => {
+        try {
+          const s = Math.min(1, max / Math.max(img.width, img.height));
+          const c = document.createElement("canvas");
+          c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          finish(c.toDataURL("image/jpeg", 0.88));
+        } catch (e) { finish(null); readRaw(); }
+      };
+      img.onerror = () => { try { URL.revokeObjectURL(url); } catch (e) {} readRaw(); };
+      setTimeout(() => { if (!done) { img.onload = null; readRaw(); } }, 4000);
+      img.src = url;
+    } catch (e) { readRaw(); }
+  });
+}
+
+// Fetches a hosted image (e.g. a freshly fal.ai-generated cover) and converts it to a data
+// URI. The exported PDF embeds coverImageUrl with jsPDF's addImage, which needs actual
+// image bytes — not a bare remote URL string — so anything that's going to print reliably
+// has to be a data: URI by the time it lands on the cover. If the fetch fails (CORS, etc.)
+// this throws rather than silently saving a URL that would look fine in the builder
+// preview but render as a blank box in the exported PDF.
+async function urlToDataUri(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("Couldn't download the generated image.");
+  const blob = await r.blob();
+  return await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(new Error("Couldn't read the generated image."));
+    fr.readAsDataURL(blob);
+  });
+}
+
+// Builds the AI cover-art prompt from whatever style information the book/collection
+// already carries — the same locked-style concept used for page art, so the cover
+// actually matches the inside of the book instead of looking like a different project.
+function buildCoverPrompt(book, collection, cover) {
+  const styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "warm, gentle children's picture-book illustration";
+  const chars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
+  const charManifest = chars.length ? chars.map((c) => `— ${c.name}: ${c.desc}`).join("\n") : "(no named characters — scene/mood cover, no figures required)";
+  const title = cover?.title || book.title || "Untitled";
+  return [
+    `STYLE (locked): ${styleGuide}`,
+    ``,
+    `Create a single front-cover illustration for a children's picture book titled "${title}". Leave open, uncluttered space in the upper-middle third of the image for the title text to be overlaid afterward — do not paint any words, letters, or a title into the image yourself.`,
+    ``,
+    `CHARACTERS (if relevant to the cover scene):\n${charManifest}`,
+    ``,
+    cover?.styleNotes ? `ADDITIONAL NOTES: ${cover.styleNotes}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+const COVER_NEGATIVE_PROMPT = [
+  "text", "letters", "words", "writing", "typography", "title", "caption", "watermark",
+  "photo realistic", "3d render", "adult content", "violence", "scary imagery",
+].join(", ");
 
 const C = {
   night: "#0E1525", ink: "#131A30", card: "#1a2235", cardAlt: "#1e2840",
@@ -85,11 +159,56 @@ function ABtn({ label, onClick, loading }) {
 }
 
 /* ── COVER BUILDER ── */
-function CoverBuilder({ pub, setPub, book, done }) {
+function CoverBuilder({ pub, setPub, book, collection, done }) {
   const d = pub.cover || {};
   const s = (k, v) => setPub(p => ({ ...p, cover: { ...p.cover, [k]: v } }));
   const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const fileInput = useRef(null);
   const save = () => { setSaved(true); done("cover"); setTimeout(() => setSaved(false), 2000); };
+
+  const uploadCover = async (file) => {
+    if (!file || !file.type || !file.type.startsWith("image/")) {
+      setErr("That doesn't look like an image file — try a JPG or PNG.");
+      return;
+    }
+    setErr(""); setBusy(true);
+    try {
+      const dataUrl = await resizeImageFile(file);
+      if (!dataUrl) { setErr("Couldn't read that image — try a smaller file or a different format."); return; }
+      s("coverImageUrl", dataUrl);
+    } finally { setBusy(false); }
+  };
+
+  const generateCover = async () => {
+    setErr(""); setBusy(true);
+    try {
+      const prompt = buildCoverPrompt(book, collection, d);
+      const loraUrl = collection && collection.loraStatus === "ready" ? collection.loraUrl : null;
+      const seed = collection ? collection.seed : book.seed;
+      const r = await fetch("/api/image", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, seed, negative_prompt: COVER_NEGATIVE_PROMPT, ...(loraUrl ? { loraUrl } : {}) }),
+      });
+      const data = await r.json();
+      if (data.error) { setErr(data.error); return; }
+      // Convert to a data URI immediately — see urlToDataUri's comment on why a bare
+      // hosted URL isn't safe to rely on for the exported PDF.
+      try {
+        const dataUri = await urlToDataUri(data.url);
+        s("coverImageUrl", dataUri);
+      } catch (e) {
+        // Couldn't convert (likely a CORS-blocked fetch) — still show the generated
+        // image so it's not wasted, but say plainly that it needs a manual save.
+        s("coverImageUrl", data.url);
+        setErr("Generated, but couldn't auto-save it for print — right-click the preview to save the image, then upload it with the button above.");
+      }
+    } catch (e) {
+      setErr(e.message || "Couldn't generate a cover right now.");
+    } finally { setBusy(false); }
+  };
+
   return (
     <div>
       <h3 style={{ color: C.cream, fontFamily: "Georgia,serif", marginBottom: 4 }}>Front Cover Builder</h3>
@@ -103,9 +222,25 @@ function CoverBuilder({ pub, setPub, book, done }) {
           <Field label="Age Range"><TI value={d.ageRange || "Ages 3–6"} onChange={v => s("ageRange", v)} /></Field>
         </div>
         <div>
-          <Field label="Cover Image URL" note="Paste from your AI studio, or describe the scene below.">
-            <TI value={d.coverImageUrl || ""} onChange={v => s("coverImageUrl", v)} placeholder="https://…" />
+          <Field label="Cover Image" note="Upload your own, or have Amora generate one in the book's locked style. Either way it's saved into the book — no separate hosting needed.">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => fileInput.current && fileInput.current.click()} disabled={busy} style={{ ...btn(), opacity: busy ? 0.6 : 1 }}>
+                {busy ? "working…" : d.coverImageUrl ? "Replace with my own image" : "Upload my own image"}
+              </button>
+              <button onClick={generateCover} disabled={busy} style={{ ...btn("mauve"), opacity: busy ? 0.6 : 1 }}>
+                {busy ? "painting…" : "✨ Generate one now"}
+              </button>
+              <input type="file" accept="image/*" style={{ display: "none" }}
+                ref={(el) => { fileInput.current = el; }}
+                onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) uploadCover(f); }} />
+            </div>
+            {err && <p style={{ color: C.gold, fontSize: 12, marginTop: 8 }}>{err}</p>}
             {d.coverImageUrl && <img src={d.coverImageUrl} alt="Cover" style={{ width: "100%", borderRadius: 8, marginTop: 8, maxHeight: 180, objectFit: "cover" }} onError={() => {}} />}
+            <details style={{ marginTop: 10 }}>
+              <summary style={{ color: C.muted, fontSize: 12, cursor: "pointer" }}>Paste a URL instead</summary>
+              <p style={{ color: C.muted, fontSize: 11, margin: "6px 0" }}>Pasted URLs may not embed correctly in the exported PDF — prefer the buttons above when possible.</p>
+              <TI value={d.coverImageUrl && d.coverImageUrl.startsWith("data:") ? "" : (d.coverImageUrl || "")} onChange={v => s("coverImageUrl", v)} placeholder="https://…" />
+            </details>
           </Field>
           <Field label="Style Notes"><TI value={d.styleNotes || ""} onChange={v => s("styleNotes", v)} placeholder="Soft watercolour, warm palette…" multi rows={3} /></Field>
         </div>
@@ -398,8 +533,45 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     const pgs = book.pages || [];
     const cover = pub.cover || {};
 
-    // Cover
+    // Cover — solid background first as a guaranteed fallback, then the real cover
+    // image on top if one's been uploaded/generated. Previously this image was never
+    // drawn at all: coverImageUrl only ever showed up in the builder's own preview, not
+    // in the actual exported PDF — a real, silent gap, not a styling choice.
     doc.setFillColor(20, 15, 40); doc.rect(0, 0, W, H, "F");
+    let coverImageDrawn = false;
+    if (cover.coverImageUrl && cover.coverImageUrl.startsWith("data:")) {
+      try {
+        const fmt = cover.coverImageUrl.includes("png") ? "PNG" : "JPEG";
+        let drawW = W, drawH = H, drawX = 0, drawY = 0;
+        try {
+          const props = doc.getImageProperties(cover.coverImageUrl);
+          if (props && props.width && props.height) {
+            const srcRatio = props.width / props.height;
+            const boxRatio = W / H;
+            // "Cover" fit (like CSS background-size: cover) — fills the whole page with
+            // no letterboxing, cropping whatever overflows. Content drawn outside the
+            // page's bounds simply isn't rendered, so over-sizing and centering is safe.
+            if (srcRatio > boxRatio) { drawH = H; drawW = H * srcRatio; }
+            else { drawW = W; drawH = W / srcRatio; }
+            drawX = (W - drawW) / 2;
+            drawY = (H - drawH) / 2;
+          }
+        } catch (e) { /* couldn't read dimensions — fall back to stretching to fill */ }
+        doc.addImage(cover.coverImageUrl, fmt, drawX, drawY, drawW, drawH);
+        coverImageDrawn = true;
+      } catch (e) { /* image unavailable — solid background already drawn, keep going */ }
+    }
+    // A dark scrim band behind the title keeps it legible over a busy illustration —
+    // only needed when there's an actual image underneath the text.
+    if (coverImageDrawn) {
+      try {
+        doc.saveGraphicsState();
+        if (doc.GState) doc.setGState(new doc.GState({ opacity: 0.4 }));
+        doc.setFillColor(10, 8, 22);
+        doc.rect(0, H * 0.30, W, H * 0.34, "F");
+        doc.restoreGraphicsState();
+      } catch (e) { /* opacity API unavailable on this jsPDF build — skip the scrim, text still renders */ }
+    }
     doc.setFont("helvetica", "bold"); doc.setFontSize(22); doc.setTextColor(250, 244, 235);
     doc.text(cover.title || book.title || "Untitled", W / 2, H * 0.42, { align: "center", maxWidth: W - 36 });
     if (cover.authorName) { doc.setFont("helvetica", "normal"); doc.setFontSize(14); doc.text(cover.authorName, W / 2, H * 0.56, { align: "center" }); }
@@ -782,7 +954,7 @@ const TABS = [
 ];
 
 /* ── MAIN MODULE ── */
-export default function PublishingModule({ book, setBook, author, onBack }) {
+export default function PublishingModule({ book, setBook, author, collection, onBack }) {
   const [tab, setTab] = useState("checklist");
   const [pub, setPubRaw] = useState(book.publishing || {});
   const [completed, setCompleted] = useState(() => new Set(book.publishingCompleted || []));
@@ -808,7 +980,7 @@ export default function PublishingModule({ book, setBook, author, onBack }) {
 
   const renderMain = () => {
     switch(tab) {
-      case "cover":        return <CoverBuilder pub={pub} setPub={setPub} book={book} done={markDone} />;
+      case "cover":        return <CoverBuilder pub={pub} setPub={setPub} book={book} collection={collection} done={markDone} />;
       case "backcover":    return <BackCoverBuilder pub={pub} setPub={setPub} book={book} done={markDone} />;
       case "dedication":   return <DedicationBuilder pub={pub} setPub={setPub} done={markDone} />;
       case "about_author": return <AboutAuthorBuilder pub={pub} setPub={setPub} book={book} author={author} done={markDone} />;
