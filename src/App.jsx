@@ -2237,6 +2237,28 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
     return () => clearTimeout(t);
   }, [data, loaded]);
 
+  // Flush-on-unmount safety net. The debounced autosave above schedules a save 700ms
+  // after every change, and its cleanup (clearTimeout) cancels that pending save —
+  // on every re-run AND on unmount. That's fine mid-edit (a newer save supersedes an
+  // older one), but it's silently destructive on unmount: clicking a nav link within
+  // 700ms of an edit (e.g. uploading a cover, then immediately clicking over to the
+  // shop to check it) unmounts KirbyStudio, cancels the pending save, and the edit is
+  // gone for good with zero warning. This is exactly what happened to a cover upload.
+  // A ref keeps the latest data/skey/loaded in sync on every render (refs survive into
+  // the unmount cleanup; state captured by the effect above does not), so the one-time
+  // cleanup below can fire a final save with whatever was last on screen. It's a fire-
+  // and-forget request — the component is gone so nothing can await it or update
+  // state — but the underlying fetch keeps running after React unmounts.
+  const latestSaveRef = useRef({ skey, data, loaded });
+  useEffect(() => { latestSaveRef.current = { skey, data, loaded }; }, [skey, data, loaded]);
+  useEffect(() => {
+    return () => {
+      const { skey: k, data: d, loaded: l } = latestSaveRef.current;
+      if (!l) return;
+      supabase.from("studio_data").upsert({ id: k, data: d, updated_at: new Date().toISOString() }).catch(() => {});
+    };
+  }, []);
+
   const book = data.books.find((b) => b.id === openId);
   const setBook = (patch) =>
     setData((d) => ({ ...d, books: d.books.map((b) => (b.id === openId ? { ...b, ...(typeof patch === "function" ? patch(b) : patch) } : b)) }));
