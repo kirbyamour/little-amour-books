@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
-import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap } from "./Bookstore";
+import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap, ComposedCover } from "./Bookstore";
 import { supabase } from "./supabaseClient";
 import {
   TermsOfSalePage, RefundPolicyPage, DigitalLicensePage, ShippingPolicyPage,
@@ -293,12 +293,13 @@ function KitchenScene() {
 function Cover({ book, large }) {
   const realCover = coverImageMap[book.id];
   if (realCover) {
-    // Real cover art from the author's Publishing studio already has the title, author
-    // name, and age badge typeset into the image — it stands alone, no placeholder text.
+    // ComposedCover draws the real image plus the same title/author/age-badge overlay
+    // approved in Publishing — see its definition in Bookstore.jsx for why a bare <img>
+    // isn't enough (the saved image never has text baked into its pixels).
     return (
       <div className={"cover" + (large ? " cover-lg" : "")} style={{ padding: 0 }} aria-label={"Cover of " + book.title}>
         {book.status === "coming" ? <span className="ribbon">Coming soon</span> : null}
-        <img src={realCover} alt={"Cover of " + book.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "inherit" }} />
+        <ComposedCover cover={realCover} fallbackTitle={book.title} fallbackAuthor={book.authorName} />
       </div>
     );
   }
@@ -2130,6 +2131,11 @@ const newId = () => "p" + Date.now() + "_" + (_pid++);
 
 function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
   const skey = studioKey || "kirby";
+  // Kirby, Mara, and June are house pen names — real third-party authors get a 3-book
+  // cap to bound AI generation spend (image/text token cost) per signup. Anyone whose
+  // studioKey isn't one of the three house keys (see resolveStudioKey) is a real author.
+  const isHouseAccount = skey === "kirby" || skey === "mara" || skey === "june";
+  const DRAFT_CAP = 3;
   const [data, setData] = useState(KIRBY_SEED);
   const [loaded, setLoaded] = useState(false);
   const [openId, setOpenId] = useState(null);
@@ -2391,6 +2397,11 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
   }, [loaded, trainingKey]);
 
   const createBookWithCollection = (collId) => {
+    if (!isHouseAccount && data.books.length >= DRAFT_CAP) {
+      window.alert(`You've reached the ${DRAFT_CAP}-book limit for this account. Finish, publish, or delete an existing book before starting a new one.`);
+      setPickingCollection(false);
+      return;
+    }
     const coll = collections.find((c) => c.id === collId);
     const id = "b" + Date.now();
     setData((d) => ({
@@ -2410,11 +2421,27 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
   };
 
   const startNewBook = () => {
+    if (!isHouseAccount && data.books.length >= DRAFT_CAP) {
+      window.alert(`You've reached the ${DRAFT_CAP}-book limit for this account. Finish, publish, or delete an existing book before starting a new one.`);
+      return;
+    }
     if (collections.length > 0) { setPickingCollection(true); }
     else { createBookWithCollection(null); }
   };
 
+  const deleteBook = (bookId) => {
+    const b = data.books.find((x) => x.id === bookId);
+    if (!b) return;
+    if (!window.confirm(`Delete "${b.title || "this book"}"? This permanently removes it and can't be undone.`)) return;
+    setData((d) => ({ ...d, books: d.books.filter((x) => x.id !== bookId) }));
+    if (openId === bookId) { setOpenId(null); setView("list"); }
+  };
+
   const startWithCharacters = (chars) => {
+    if (!isHouseAccount && data.books.length >= DRAFT_CAP) {
+      window.alert(`You've reached the ${DRAFT_CAP}-book limit for this account. Finish, publish, or delete an existing book before starting a new one.`);
+      return;
+    }
     const id = "b" + Date.now();
     setData((d) => ({ ...d, books: [...d.books, { id, title: "Untitled book", status: "draft", earnings: 0, characters: chars.map((c) => ({ ...c })), bibleLocked: false, scriptApproved: false, pages: [] }] }));
     setOpenId(id);
@@ -2483,12 +2510,17 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
                       {b.characters && b.characters.length && !b.collectionId ? (
                         <button className="btn-text soft" onClick={() => saveCollectionFromBook(b.id)}>Save as collection</button>
                       ) : null}
+                      <button className="btn-text soft" style={{color:"#C0556B"}} onClick={() => deleteBook(b.id)}>delete</button>
                     </div>
                   </div>
                 );
               })}
-              <button className="btn-gold" style={{ marginTop: 14 }} onClick={startNewBook}>+ Create a new book with Amora</button>
-              <p className="fine">Everything you make here saves automatically and waits for you next time.</p>
+              <button className="btn-gold" style={{ marginTop: 14, opacity: (!isHouseAccount && data.books.length >= DRAFT_CAP) ? 0.5 : 1 }} disabled={!isHouseAccount && data.books.length >= DRAFT_CAP} onClick={startNewBook}>+ Create a new book with Amora</button>
+              {!isHouseAccount && data.books.length >= DRAFT_CAP ? (
+                <p className="fine" style={{ color: "#C0556B" }}>You've used all {DRAFT_CAP} books on this account. Delete or publish one to start another.</p>
+              ) : (
+                <p className="fine">Everything you make here saves automatically and waits for you next time.</p>
+              )}
             </div>
             <div className="dash-col">
               <h3 className="bd-h">Character Collections</h3>
@@ -3857,8 +3889,15 @@ export default function App() {
         let changed = false;
         (rows || []).forEach((row) => {
           (row.data?.books || []).forEach((sb) => {
-            const url = sb.publishing?.cover?.coverImageUrl;
-            if (url && coverImageMap[sb.id] !== url) { coverImageMap[sb.id] = url; changed = true; }
+            const c = sb.publishing?.cover;
+            const url = c?.coverImageUrl;
+            if (!url) return;
+            // Store the whole cover record, not just the image URL — ComposedCover needs
+            // title/subtitle/author/series/age-badge/logo to render the same overlay the
+            // author approved in Publishing, not just the bare illustration.
+            const next = { url, title: c.title, subtitle: c.subtitle, authorName: c.authorName, series: c.series, ageRange: c.ageRange, showAgeBadge: c.showAgeBadge, showLogo: c.showLogo };
+            const prev = coverImageMap[sb.id];
+            if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) { coverImageMap[sb.id] = next; changed = true; }
           });
         });
         if (changed) setCoverTick((t) => t + 1);
@@ -4220,7 +4259,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .small-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .book-tile { text-align: left; background: none; border: none; padding: 0; display: block; }
 .book-tile:hover .cover { transform: translateY(-5px) rotate(-0.4deg); box-shadow: 0 18px 38px rgba(19,26,48,.28); }
-.cover { aspect-ratio: 1 / 1.28; border-radius: 10px; padding: 22px 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; position: relative; overflow: hidden; box-shadow: 0 10px 26px rgba(19,26,48,.22); transition: transform .2s ease, box-shadow .2s ease; }
+.cover { aspect-ratio: 1 / 1; border-radius: 10px; padding: 22px 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; position: relative; overflow: hidden; box-shadow: 0 10px 26px rgba(19,26,48,.22); transition: transform .2s ease, box-shadow .2s ease; }
 .cover-lg { max-width: 360px; }
 .ribbon { position: absolute; top: 22px; right: -42px; transform: rotate(36deg); background: ${P.gold}; color: ${P.nightDeep}; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; padding: 5px 48px; box-shadow: 0 3px 10px rgba(0,0,0,.3); }
 .cover-stars i { position: absolute; width: 2px; height: 2px; border-radius: 50%; background: rgba(255,249,240,.7); }

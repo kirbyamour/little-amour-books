@@ -13,12 +13,67 @@ const P = {
   cream: "#FFF9F0", sage: "#6A8F7A", sageSoft: "#EAF0EB",
 };
 
-// Real per-book cover art, generated/uploaded in an author's Publishing studio and saved to
-// Supabase (studio_data → book.publishing.cover.coverImageUrl). Populated once by App() on
-// mount and shared here by plain object reference (not React state) so both the public
-// shop's MiniCover and the book-detail page's Cover can show the author's real finished
-// cover instead of the gradient+motif placeholder, without prop-drilling through every page.
+// Real per-book cover data, saved in an author's Publishing studio
+// (studio_data → book.publishing.cover) and pulled in here by App() on mount. Stores the
+// whole cover record (image + title/subtitle/author/series/age-badge/logo flags), not just
+// the bare image URL — see ComposedCover below for why. Shared by plain object reference
+// (not React state) so both the public shop's MiniCover and the book-detail page's Cover
+// can show it, without prop-drilling through every page that reads the module-level BOOKS
+// constant directly.
 export const coverImageMap = {};
+
+// Mirrors Publishing.jsx's CoverBuilder preview (and the print PDF export) exactly, on
+// purpose. The raw cover image alone is NEVER the finished cover: the AI-art prompt
+// forbids the model from painting any typography, and an uploaded photo is only resized,
+// never retouched — title/subtitle/author/age-badge/logo only exist as this overlay,
+// composited live. The book's real print trim is also a square (215.9 x 215.9mm), not a
+// tall portrait. Before this existed, the public site dropped the bare square image into
+// a portrait-shaped frame with no overlay at all, so a real cover showed up cropped to an
+// arbitrary slice with no title on it. If the recipe (percentages, scrim opacity, font
+// sizes) ever changes in Publishing.jsx, change it here too — that drift is exactly what
+// caused this bug the first time.
+export function ComposedCover({ cover, fallbackTitle, fallbackAuthor, tiny }) {
+  if (!cover || !cover.url) return null;
+  const alt = "Cover of " + (cover.title || fallbackTitle || "book");
+  if (tiny) {
+    return <img src={cover.url} alt={alt} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "inherit" }} />;
+  }
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", containerType: "inline-size" }}>
+      <img src={cover.url} alt={alt} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+      <div style={{ position: "absolute", left: 0, right: 0, top: "27%", height: "42%", background: "rgba(10,8,22,0.88)" }} />
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: (34 / 215.9 * 100) + "%", background: "rgba(10,8,22,0.88)" }} />
+      {cover.series && (
+        <div style={{ position: "absolute", left: 0, right: 0, top: "30%", textAlign: "center", color: "#c4a8d1", fontWeight: 700, fontSize: "5cqw", letterSpacing: 1 }}>
+          {cover.series.toUpperCase()}
+        </div>
+      )}
+      <div style={{ position: "absolute", left: "8%", right: "8%", top: "38%", textAlign: "center", color: "#FAF4EB", fontWeight: 700, fontSize: "9cqw", fontFamily: "Georgia,serif", lineHeight: 1.15 }}>
+        {cover.title || fallbackTitle || "Untitled"}
+      </div>
+      {cover.subtitle && (
+        <div style={{ position: "absolute", left: "10%", right: "10%", top: "48%", textAlign: "center", color: "#e1d6e8", fontStyle: "italic", fontSize: "5.5cqw" }}>
+          {cover.subtitle}
+        </div>
+      )}
+      {(cover.authorName || fallbackAuthor) && (
+        <div style={{ position: "absolute", left: 0, right: 0, top: "56%", textAlign: "center", color: "#FAF4EB", fontSize: "6cqw" }}>
+          {cover.authorName || fallbackAuthor}
+        </div>
+      )}
+      {cover.showAgeBadge !== false && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: "16%", textAlign: "center", color: "#c4a8d1", fontSize: "4cqw", letterSpacing: 0.5 }}>
+          {(cover.ageRange || "Ages 3–6").toUpperCase()}
+        </div>
+      )}
+      {cover.showLogo !== false && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: "5%", textAlign: "center", color: "#9b7eb8", fontSize: "4.5cqw" }}>
+          Little Amour Books
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ---- Motif SVGs (self-contained, so Bookstore works standalone) ---- */
 function Moon({ size = 26, color = "#F2CFC5" }) {
@@ -84,13 +139,12 @@ function MiniCover({ book, large = false, tiny = false }) {
   const motifSize = tiny ? 22 : large ? 48 : 32;
   const realCover = coverImageMap[book.id];
   if (realCover) {
-    // The real cover already has the title, author, and age badge typeset into the
-    // image itself (Publishing's CoverBuilder), so it replaces the placeholder
-    // entirely rather than sitting behind the gradient's own text layer.
+    // ComposedCover replaces the placeholder entirely — it draws the real image plus
+    // the same title/author/age-badge overlay the author approved in Publishing.
     return (
       <div className={sz} style={{ padding: 0 }} aria-label={"Cover of " + book.title}>
         {book.status === "coming" && !tiny && <span className="bs-ribbon">Coming soon</span>}
-        <img src={realCover} alt={"Cover of " + book.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "inherit" }} />
+        <ComposedCover cover={realCover} fallbackTitle={book.title} fallbackAuthor={book.authorName} tiny={tiny} />
       </div>
     );
   }
@@ -1139,13 +1193,16 @@ export const STORE_CSS = `
 
 /* ---- Mini cover ---- */
 .mini-cover {
-  aspect-ratio: 1 / 1.28; border-radius: 0; padding: 18px 14px;
+  /* 1:1 — matches the book's actual print trim (215.9 x 215.9mm square), not an
+     arbitrary portrait shape. A real cover image is composited for square; cropping it
+     into a taller frame sliced off the title/art unpredictably. */
+  aspect-ratio: 1 / 1; border-radius: 0; padding: 18px 14px;
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; text-align: center; position: relative;
   overflow: hidden; width: 100%;
 }
 .mini-cover-lg {
-  width: 200px; aspect-ratio: 1 / 1.28; border-radius: 10px; padding: 22px 18px;
+  width: 200px; aspect-ratio: 1 / 1; border-radius: 10px; padding: 22px 18px;
   display: flex; flex-direction: column; align-items: center;
   justify-content: center; text-align: center; position: relative;
   overflow: hidden; box-shadow: 0 10px 26px rgba(19,26,48,.22);
