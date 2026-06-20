@@ -690,6 +690,19 @@ function ExportCenter({ pub, setPub, book, author, done }) {
             drawY = (H - drawH) / 2;
           }
         } catch (e) { /* couldn't read dimensions — fall back to stretching to fill */ }
+        if (cover.finishedArt) {
+          const topBar = drawY, bottomBar = H - drawH - drawY;
+          const leftBar = drawX, rightBar = W - drawW - drawX;
+          if (topBar > 0.4 || bottomBar > 0.4 || leftBar > 0.4 || rightBar > 0.4) {
+            try {
+              const img = await loadImageEl(cover.coverImageUrl);
+              if (topBar > 0.4) doc.addImage(edgeStripH(img, true), "PNG", 0, 0, W, topBar);
+              if (bottomBar > 0.4) doc.addImage(edgeStripH(img, false), "PNG", 0, H - bottomBar, W, bottomBar);
+              if (leftBar > 0.4) doc.addImage(edgeStripV(img, true), "PNG", 0, 0, leftBar, H);
+              if (rightBar > 0.4) doc.addImage(edgeStripV(img, false), "PNG", W - rightBar, 0, rightBar, H);
+            } catch (e) { /* edge-extend failed — background shows through as before */ }
+          }
+        }
         doc.addImage(cover.coverImageUrl, fmt, drawX, drawY, drawW, drawH);
         coverImageDrawn = true;
       } catch (e) { /* image unavailable — solid background already drawn, keep going */ }
@@ -916,6 +929,17 @@ function ExportCenter({ pub, setPub, book, author, done }) {
             drawY = (H - drawH) / 2;
           }
         } catch (e) { /* couldn't read dimensions — fall back to filling the page */ }
+        const topBar = drawY, bottomBar = H - drawH - drawY;
+        const leftBar = drawX, rightBar = W - drawW - drawX;
+        if (topBar > 0.4 || bottomBar > 0.4 || leftBar > 0.4 || rightBar > 0.4) {
+          try {
+            const img = await loadImageEl(bcv.backCoverImageUrl);
+            if (topBar > 0.4) doc.addImage(edgeStripH(img, true), "PNG", 0, 0, W, topBar);
+            if (bottomBar > 0.4) doc.addImage(edgeStripH(img, false), "PNG", 0, H - bottomBar, W, bottomBar);
+            if (leftBar > 0.4) doc.addImage(edgeStripV(img, true), "PNG", 0, 0, leftBar, H);
+            if (rightBar > 0.4) doc.addImage(edgeStripV(img, false), "PNG", W - rightBar, 0, rightBar, H);
+          } catch (e) { /* edge-extend failed — background shows through as before */ }
+        }
         doc.addImage(bcv.backCoverImageUrl, fmt, drawX, drawY, drawW, drawH);
       } catch (e) { /* image unavailable — solid background already drawn */ }
     } else {
