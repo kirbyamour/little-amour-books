@@ -2914,7 +2914,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
                 const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: np.text, pageNum: np.num });
                 const imgRes = await fetch("/api/image", {
                   method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+                  body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
                 });
                 const imgData = await imgRes.json();
                 newPages[idx] = { ...newPages[idx], img: imgData.url || newPages[idx].img };
@@ -2962,7 +2962,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
                 const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: p.text, pageNum: i + 1 });
                 const imgRes = await fetch("/api/image", {
                   method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+                  body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
                 });
                 const imgData = await imgRes.json();
                 newPages[i] = { ...newPages[i], img: imgData.url || newPages[i].img };
@@ -3026,7 +3026,7 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
 
           const imgRes = await fetch("/api/image", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+            body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
           });
           const imgData = await imgRes.json();
           if (imgData.error) {
@@ -3550,7 +3550,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       const imgRes = await fetch("/api/image", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT,
+          prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd",
           ...(loraUrl ? { loraUrl } : referenceImageUrl ? { referenceImageUrl } : {}),
         }),
       });

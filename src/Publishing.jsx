@@ -830,6 +830,59 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     doc.setFontSize(10); doc.setTextColor(155, 126, 184);
     doc.text(pub.aboutLAB?.website || "littleamour.com", W / 2, H - 28, { align: "center" });
 
+    // Back cover — previously this customer-facing PDF (Digital Reading + Printable)
+    // never drew a back cover page at all. The real/placeholder back cover only ever
+    // existed in the separate publisher "Full Cover spread" file, which most customers
+    // never open. A real children's book has a back cover; this adds one as the actual
+    // last page of the book the reader holds, not just an internal print artifact.
+    doc.addPage([W, H]);
+    const bcv = pub.backCover || {};
+    if (bcv.backCoverImageUrl && bcv.backCoverImageUrl.startsWith("data:")) {
+      doc.setFillColor(20, 15, 40); doc.rect(0, 0, W, H, "F");
+      try {
+        const fmt = bcv.backCoverImageUrl.includes("png") ? "PNG" : "JPEG";
+        let drawW = W, drawH = H, drawX = 0, drawY = 0;
+        try {
+          const props = doc.getImageProperties(bcv.backCoverImageUrl);
+          if (props && props.width && props.height) {
+            const srcRatio = props.width / props.height;
+            const boxRatio = W / H;
+            // "Contain" fit, not "cover" — an uploaded finished back cover may have its
+            // own baked-in text/design (same reasoning as the finishedArt cover/page
+            // paths above): cropping any edge risks slicing through it. The whole image
+            // fits inside the page instead, centered.
+            if (srcRatio > boxRatio) { drawW = W; drawH = W / srcRatio; }
+            else { drawH = H; drawW = H * srcRatio; }
+            drawX = (W - drawW) / 2;
+            drawY = (H - drawH) / 2;
+          }
+        } catch (e) { /* couldn't read dimensions — fall back to filling the page */ }
+        doc.addImage(bcv.backCoverImageUrl, fmt, drawX, drawY, drawW, drawH);
+      } catch (e) { /* image unavailable — solid background already drawn */ }
+    } else {
+      // No finished back cover image — a real, designed text back cover (hook +
+      // blurb + age range), not a "placeholder" banner. Plenty of real picture books
+      // have text-only back covers; this is a legitimate finished look, not an error
+      // state, so it gets the same dark cover palette as the front instead of looking
+      // like an internal print artifact.
+      doc.setFillColor(20, 15, 40); doc.rect(0, 0, W, H, "F");
+      if (bcv.hook) {
+        doc.setFont("helvetica", "bolditalic"); doc.setFontSize(15); doc.setTextColor(250, 244, 235);
+        const hookLines = doc.splitTextToSize(bcv.hook, W - 50);
+        doc.text(hookLines, W / 2, H * 0.3, { align: "center" });
+      }
+      const blurbText = bcv.blurb || pub.metadata?.longDesc || pub.metadata?.shortDesc || "";
+      if (blurbText) {
+        doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(225, 214, 232);
+        const blurbLines = doc.splitTextToSize(blurbText, W - 50);
+        doc.text(blurbLines, W / 2, H * (bcv.hook ? 0.42 : 0.38), { align: "center" });
+      }
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(196, 168, 209);
+      doc.text((cover.ageRange || "Ages 3–6").toUpperCase(), W / 2, H - 26, { align: "center" });
+      doc.setFontSize(10); doc.setTextColor(155, 126, 184);
+      doc.text("Little Amour Books", W / 2, H - 14, { align: "center" });
+    }
+
     return doc;
   };
 
