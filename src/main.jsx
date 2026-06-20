@@ -23,6 +23,13 @@ if (!window.storage) {
         /* non-fatal */
       }
     },
+    remove: async (key) => {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        /* non-fatal */
+      }
+    },
   };
 }
 

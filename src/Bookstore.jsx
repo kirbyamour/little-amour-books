@@ -13,6 +13,13 @@ const P = {
   cream: "#FFF9F0", sage: "#6A8F7A", sageSoft: "#EAF0EB",
 };
 
+// Real per-book cover art, generated/uploaded in an author's Publishing studio and saved to
+// Supabase (studio_data → book.publishing.cover.coverImageUrl). Populated once by App() on
+// mount and shared here by plain object reference (not React state) so both the public
+// shop's MiniCover and the book-detail page's Cover can show the author's real finished
+// cover instead of the gradient+motif placeholder, without prop-drilling through every page.
+export const coverImageMap = {};
+
 /* ---- Motif SVGs (self-contained, so Bookstore works standalone) ---- */
 function Moon({ size = 26, color = "#F2CFC5" }) {
   return (
@@ -75,6 +82,18 @@ function Motif({ kind, size = 34, light = false }) {
 function MiniCover({ book, large = false, tiny = false }) {
   const sz = tiny ? "mini-cover-tiny" : large ? "mini-cover-lg" : "mini-cover";
   const motifSize = tiny ? 22 : large ? 48 : 32;
+  const realCover = coverImageMap[book.id];
+  if (realCover) {
+    // The real cover already has the title, author, and age badge typeset into the
+    // image itself (Publishing's CoverBuilder), so it replaces the placeholder
+    // entirely rather than sitting behind the gradient's own text layer.
+    return (
+      <div className={sz} style={{ padding: 0 }} aria-label={"Cover of " + book.title}>
+        {book.status === "coming" && !tiny && <span className="bs-ribbon">Coming soon</span>}
+        <img src={realCover} alt={"Cover of " + book.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "inherit" }} />
+      </div>
+    );
+  }
   return (
     <div
       className={sz}

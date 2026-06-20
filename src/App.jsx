@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
-import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS } from "./Bookstore";
+import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap } from "./Bookstore";
 import { supabase } from "./supabaseClient";
 import {
   TermsOfSalePage, RefundPolicyPage, DigitalLicensePage, ShippingPolicyPage,
@@ -291,6 +291,17 @@ function KitchenScene() {
 }
 
 function Cover({ book, large }) {
+  const realCover = coverImageMap[book.id];
+  if (realCover) {
+    // Real cover art from the author's Publishing studio already has the title, author
+    // name, and age badge typeset into the image — it stands alone, no placeholder text.
+    return (
+      <div className={"cover" + (large ? " cover-lg" : "")} style={{ padding: 0 }} aria-label={"Cover of " + book.title}>
+        {book.status === "coming" ? <span className="ribbon">Coming soon</span> : null}
+        <img src={realCover} alt={"Cover of " + book.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "inherit" }} />
+      </div>
+    );
+  }
   return (
     <div
       className={"cover" + (large ? " cover-lg" : "")}
@@ -1753,9 +1764,9 @@ function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut, go }
       <div className="wrap">
         <div className="row-between" style={{marginBottom:8}}>
           <div>
-            <p className="eyebrow plum">Admin switcher</p>
+            <p className="eyebrow plum">Author switcher</p>
             <h2>Which author today?</h2>
-            <p className="lead" style={{marginTop:4}}>You're signed in as Kirby. Pick a dashboard to open, or go to your studio.</p>
+            <p className="lead" style={{marginTop:4}}>Pick who you're working as.</p>
           </div>
           <button className="btn-text" onClick={onSignOut}>Sign out</button>
         </div>
@@ -1772,11 +1783,6 @@ function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut, go }
               <p className="chooser-tagline">{a.tagline}</p>
             </button>
           ))}
-          <button className="chooser-card chooser-admin" onClick={onPickAdmin}>
-            <div className="chooser-avatar" style={{background:"linear-gradient(135deg,#2D2D2D,#555)"}}>✦</div>
-            <p className="chooser-name">My Studio</p>
-            <p className="chooser-tagline">Your own book builder, AI studio, and settings.</p>
-          </button>
         </div>
 
         <button
@@ -1838,160 +1844,6 @@ function SignInPage({ onSignIn }) {
     </section>
   );
 }
-
-const DASH_SEED = {
-  author: "Author",
-  books: [
-    { id: "bluebag", title: "The Night We Packed the Blue Bag", status: "approved", statusLabel: "Approved — launching soon", earnings: 0 },
-    { id: "lighthouse", title: "The Lighthouse Keeps Its Promise", status: "changes", statusLabel: "Changes requested", earnings: 0 },
-    { id: "untitled", title: "Untitled new idea", status: "draft", statusLabel: "Draft — in the AI studio", earnings: 0 },
-  ],
-  earnings: { royalties: 0, gifts: 0, lifetime: 0, nextPayout: "—" },
-  feedback: [
-    { from: "editor", tag: "required", text: "Page 7: 'the waves got angry' may read as frightening for our youngest readers. Could the storm stay outside the window while the lighthouse keeps its promise inside? The metaphor will still land — gently." },
-    { from: "editor", tag: "suggestion", text: "Page 12 is gorgeous. Consider repeating 'the light stays on' as the closing line of the book — children love a promise they can memorize." },
-  ],
-};
-
-
-function ProfilePhotoUpload({ author, onPhotoUpdate }) {
-  const [uploading, setUploading] = React.useState(false);
-  const [photoUrl, setPhotoUrl] = React.useState(author.photoUrl || null);
-  const [err, setErr] = React.useState("");
-  const inputRef = React.useRef();
-
-  const handleFile = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) { setErr("Please choose an image file."); return; }
-    if (file.size > 5 * 1024 * 1024) { setErr("Photo must be under 5 MB."); return; }
-    setUploading(true); setErr("");
-    try {
-      const ext = file.name.split(".").pop().toLowerCase();
-      const path = `${author.id}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from("author-photos")
-        .upload(path, file, { upsert: true, contentType: file.type });
-      if (upErr) throw upErr;
-      const { data: { publicUrl } } = supabase.storage.from("author-photos").getPublicUrl(path);
-      const bust = publicUrl + "?t=" + Date.now();
-      await supabase.from("author_profiles").update({ photo_url: publicUrl }).eq("id", author.id);
-      setPhotoUrl(bust);
-      onPhotoUpdate && onPhotoUpdate(publicUrl);
-    } catch (ex) {
-      setErr("Upload failed — please try again.");
-      console.error(ex);
-    }
-    setUploading(false);
-  };
-
-  const initial = (author.name || "?")[0].toUpperCase();
-  return (
-    <div className="profile-photo-card">
-      <div className="profile-photo-wrap">
-        {photoUrl
-          ? <img src={photoUrl} alt="Your author photo" className="profile-photo-img" />
-          : <div className="profile-photo-placeholder">{initial}</div>}
-      </div>
-      <div className="profile-photo-info">
-        <p className="profile-photo-name">{author.name}</p>
-        <p className="fine" style={{marginBottom:8}}>Your photo appears on your author page and beside your books.</p>
-        <button className="btn-gold" style={{fontSize:13,padding:"7px 16px"}} onClick={() => inputRef.current.click()} disabled={uploading}>
-          {uploading ? "Uploading…" : photoUrl ? "Change photo" : "Upload photo"}
-        </button>
-        <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}} />
-        {err && <p className="form-err" style={{marginTop:6,fontSize:13}}>{err}</p>}
-      </div>
-    </div>
-  );
-}
-
-function DashboardPage({ go, author, onSignOut, signOutLabel, studioKey }) {
-  const [reply, setReply] = useState("");
-  const [thread, setThread] = useState(DASH_SEED.feedback);
-  const [currentAuthor, setCurrentAuthor] = React.useState(author);
-  const [inStudio, setInStudio] = useState(false);
-  const send = () => {
-    const t = reply.trim();
-    if (!t) return;
-    setThread([...thread, { from: "author", tag: "reply", text: t }]);
-    setReply("");
-  };
-  const chip = (s) => ({
-    approved: "st st-ok", changes: "st st-req", draft: "st st-draft",
-  }[s] || "st");
-  if (inStudio) {
-    return <KirbyStudio go={go} account={author} studioKey={studioKey} homeSignal={0} onSignOut={() => setInStudio(false)} />;
-  }
-  return (
-    <section className="morning page-top">
-      <div className="wrap">
-        <div className="row-between">
-          <div>
-            <p className="eyebrow plum">Author studio</p>
-            <h2>Good morning, {(author?.name || "Author").split(" ")[0]}.</h2>
-          </div>
-          <button className="btn-text" onClick={onSignOut}>Sign out</button>
-        </div>
-
-        <ProfilePhotoUpload author={currentAuthor} onPhotoUpdate={(url) => setCurrentAuthor(a => ({...a, photoUrl: url}))} />
-
-        <div className="dash-grid">
-          <div className="dash-col">
-            <h3 className="bd-h">My books</h3>
-            {DASH_SEED.books.map((b) => (
-              <div key={b.id} className="dash-book">
-                <div>
-                  <strong>{b.title}</strong>
-                  <span className={chip(b.status)}>{b.statusLabel}</span>
-                </div>
-                <button
-                  className="btn-text"
-                  onClick={() => {
-                    if (b.status === "draft") setInStudio(true);
-                    else if (b.status === "changes") document.getElementById("dash-feedback")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    else go("book", b.id);
-                  }}
-                >{b.status === "draft" ? "Continue in studio →" : b.status === "changes" ? "View feedback →" : "View book →"}</button>
-              </div>
-            ))}
-            <button className="btn-gold" style={{ marginTop: 14 }} onClick={() => setInStudio(true)}>+ Start a new book with the AI studio</button>
-
-            <h3 className="bd-h" style={{ marginTop: 30 }}>Earnings</h3>
-            <div className="earn-card">
-              <p><span>Book royalties (this period)</span><span>${DASH_SEED.earnings.royalties.toFixed(2)}</span></p>
-              <p><span>Reader gifts — 100% yours</span><span>${DASH_SEED.earnings.gifts.toFixed(2)}</span></p>
-              <p><span>Lifetime earnings</span><span>${DASH_SEED.earnings.lifetime.toFixed(2)}</span></p>
-              <p className="co-total"><span>Next payout</span><span>{DASH_SEED.earnings.nextPayout}</span></p>
-            </div>
-            <p className="fine">You keep 75% of every sale and 75% of net Amazon royalties. Statements itemize every book, every month.</p>
-          </div>
-
-          <div className="dash-col" id="dash-feedback">
-            <h3 className="bd-h">Editorial feedback — <em>The Lighthouse Keeps Its Promise</em></h3>
-            <div className="thread">
-              {thread.map((m, i) => (
-                <div key={i} className={"fb-card" + (m.from === "author" ? " mine" : "")}>
-                  <p className="fb-meta">
-                    {m.from === "author" ? "You" : "Your editor"}
-                    {m.tag !== "reply" ? <> · <span className={"fb-tag" + (m.tag === "suggestion" ? "" : " req")}>{m.tag}</span></> : null}
-                  </p>
-                  <p>{m.text}</p>
-                </div>
-              ))}
-            </div>
-            <div className="reply-row">
-              <textarea rows={2} placeholder="Reply to your editor…" value={reply} onChange={(e) => setReply(e.target.value)} />
-              <button className="btn-gold" onClick={send}>Send</button>
-            </div>
-            <p className="fine">When all required changes are resolved, your book moves to final approval — then to Amazon.</p>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 
 /* ============================================================
    KIRBY'S STUDIO — Amora-guided book creation
@@ -2298,23 +2150,50 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
     setEditingCollId(null);
   }, [homeSignal]);
 
+  // Loads this author's real saved data from Supabase. A transient fetch error here must
+  // never be mistaken for "no data exists yet" — if it were, the code below would fall back
+  // to a stale local snapshot, and 700ms later the autosave effect would persist that stale
+  // snapshot over the real cloud data, silently undoing anything deleted since. So a genuine
+  // error retries instead of guessing; only a confirmed "zero rows" answer is treated as a
+  // first-time signup eligible for the one-time legacy-localStorage migration below.
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    const load = async (attempt) => {
+      let row = null, fetchError = null;
       try {
-        const { data: row } = await supabase.from("studio_data").select("data").eq("id", skey).maybeSingle();
-        if (row && row.data) { setData(row.data); setLoaded(true); return; }
-      } catch (e) { /* fall through to legacy local check */ }
-      // No Supabase row yet — check for legacy browser-only data and adopt it once.
+        const res = await supabase.from("studio_data").select("data").eq("id", skey).maybeSingle();
+        row = res.data;
+        fetchError = res.error || null;
+      } catch (e) {
+        fetchError = e;
+      }
+      if (cancelled) return;
+      if (fetchError) {
+        if (attempt < 4) setTimeout(() => { if (!cancelled) load(attempt + 1); }, 1000 * (attempt + 1));
+        return;
+      }
+      if (row && row.data) { setData(row.data); setLoaded(true); return; }
+      // Confirmed zero rows for this author — check for a legacy pre-migration browser
+      // snapshot and adopt it exactly once, then immediately write it to Supabase and
+      // delete the local copy so it can never resurrect a since-deleted item again.
       if (skey === "kirby") {
         try {
           const r = await window.storage.get("lab:studio:kirby:v2");
-          if (r && r.value) setData(JSON.parse(r.value));
-        } catch (e) { /* first visit */ }
-      } else {
-        setData({ gifts: 0, collections: [], books: [], seededDraftIds: [] });
+          if (r && r.value) {
+            const legacy = JSON.parse(r.value);
+            setData(legacy);
+            setLoaded(true);
+            await supabase.from("studio_data").upsert({ id: skey, data: legacy, updated_at: new Date().toISOString() });
+            await window.storage.remove("lab:studio:kirby:v2");
+            return;
+          }
+        } catch (e) { /* first visit, no legacy data */ }
       }
+      setData({ gifts: 0, collections: [], books: [], seededDraftIds: [] });
       setLoaded(true);
-    })();
+    };
+    load(0);
+    return () => { cancelled = true; };
   }, []);
 
   // One-time seed: pull in any "coming soon" titles already announced on the public site for
@@ -3966,6 +3845,26 @@ export default function App() {
   const [cart, setCart] = useState([]);      // { cartId, type, id, title, price, authorName, grad, motif }
   const [toastMsg, setToastMsg] = useState("");
   const toastTimer = useRef(null);
+  // Pull each author's real saved cover art (Publishing → studio_data.books[].publishing.cover.coverImageUrl)
+  // into the shared coverImageMap so the public Cover/MiniCover components show the actual finished
+  // cover instead of the gradient+motif placeholder, for any book that has one. Best-effort: if this
+  // fetch fails, every book just keeps showing its placeholder — never blocks the page.
+  const [coverTick, setCoverTick] = useState(0);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: rows } = await supabase.from("studio_data").select("id,data").in("id", ["kirby", "mara", "june"]);
+        let changed = false;
+        (rows || []).forEach((row) => {
+          (row.data?.books || []).forEach((sb) => {
+            const url = sb.publishing?.cover?.coverImageUrl;
+            if (url && coverImageMap[sb.id] !== url) { coverImageMap[sb.id] = url; changed = true; }
+          });
+        });
+        if (changed) setCoverTick((t) => t + 1);
+      } catch (e) { /* keep placeholders */ }
+    })();
+  }, []);
 
   const addToCart = (item) => {
     const cartId = item.type + "_" + item.id;
@@ -4123,10 +4022,10 @@ export default function App() {
         onPickAdmin={() => setPersona("admin")}
         onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
     else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} account={account} studioKey="kirby" homeSignal={studioHome} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
-    else if (account?.isKirby && persona) page = <DashboardPage go={go} author={persona} studioKey={persona.id}
-        onSignOut={() => setPersona(null)}
-        signOutLabel="← Back to switcher" />;
-    else page = <DashboardPage go={go} author={account} studioKey={resolveStudioKey(account)} onSignOut={() => { setAccount(null); go("home"); }} />;
+    else if (account?.isKirby && persona) page = <KirbyStudio go={go} account={persona} studioKey={persona.id}
+        homeSignal={studioHome}
+        onSignOut={() => setPersona(null)} />;
+    else page = <KirbyStudio go={go} account={account} studioKey={resolveStudioKey(account)} homeSignal={studioHome} onSignOut={() => { setAccount(null); go("home"); }} />;
   }
   else page = <NotFoundPage go={go} />;
 
@@ -4153,7 +4052,7 @@ export default function App() {
           <button className={"nav-link cart-btn" + (route.page === "cart" ? " on" : "")} onClick={() => go("cart")} aria-label={`Cart — ${cart.length} item${cart.length !== 1 ? "s" : ""}`}>
             🛍 {cart.length > 0 && <span className="cart-badge">{cart.length}</span>}
           </button>
-          <button className={"nav-link signin" + (route.page === "signin" ? " on" : "")} onClick={() => { setStudioHome((n) => n + 1); go("signin"); }}>
+          <button className={"nav-link signin" + (route.page === "signin" ? " on" : "")} onClick={() => { setPersona(null); setStudioHome((n) => n + 1); go("signin"); }}>
             {account ? "My studio" : "Sign in"}
           </button>
         </div>
