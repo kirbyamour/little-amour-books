@@ -3976,7 +3976,7 @@ function MatterChat({ label, intro, book, currentText, onApply }) {
 
   return (
     <div className="pagechat-inline">
-      <div className="pc-head"><span><MoonMark size={14} color="#FFF9F0" /> Amora \u00b7 {label}</span></div>
+      <div className="pc-head"><span><MoonMark size={14} color="#FFF9F0" /> Amora · {label}</span></div>
       <div className="pc-scroll pc-scroll-inline" ref={scroller}>
         {msgs.map((m, i) => <div key={i} className={"abubble " + m.role}>{m.text.split("\n").map((l, j) => l ? <p key={j}>{l}</p> : null)}</div>)}
         {busy ? <div className="abubble amora"><p className="typing">thinking<i>.</i><i>.</i><i>.</i></p></div> : null}
