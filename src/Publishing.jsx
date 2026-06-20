@@ -248,16 +248,19 @@ function CoverBuilder({ pub, setPub, book, collection, done }) {
               // PDF was exported, even though every one of those fields is filled in above.
               <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", borderRadius: 8, marginTop: 8, overflow: "hidden", background: "#140f28", containerType: "inline-size" }}>
                 <img src={d.coverImageUrl} alt="Cover" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={() => {}} />
-                {/* 0.88 opacity, matching the PDF export's scrim — see makeBookPDF for why
-                    this needs to be near-opaque rather than a light tint. */}
-                <div style={{ position: "absolute", left: 0, right: 0, top: "27%", height: "42%", background: "rgba(10,8,22,0.88)" }} />
-                <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 34 / 215.9 * 100 + "%", background: "rgba(10,8,22,0.88)" }} />
-                {d.series && <div style={{ position: "absolute", left: 0, right: 0, top: "30%", textAlign: "center", color: "#c4a8d1", fontWeight: 700, fontSize: "5cqw", letterSpacing: 1 }}>{d.series.toUpperCase()}</div>}
-                <div style={{ position: "absolute", left: "8%", right: "8%", top: "38%", textAlign: "center", color: C.cream, fontWeight: 700, fontSize: "9cqw", fontFamily: "Georgia,serif", lineHeight: 1.15 }}>{d.title || book.title || "Untitled"}</div>
-                {d.subtitle && <div style={{ position: "absolute", left: "10%", right: "10%", top: "48%", textAlign: "center", color: "#e1d6e8", fontStyle: "italic", fontSize: "5.5cqw" }}>{d.subtitle}</div>}
-                {d.authorName && <div style={{ position: "absolute", left: 0, right: 0, top: "56%", textAlign: "center", color: C.cream, fontSize: "6cqw" }}>{d.authorName}</div>}
-                {d.showAgeBadge !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "16%", textAlign: "center", color: "#c4a8d1", fontSize: "4cqw", letterSpacing: 0.5 }}>{(d.ageRange || "Ages 3–6").toUpperCase()}</div>}
-                {d.showLogo !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "5%", textAlign: "center", color: C.mauve, fontSize: "4.5cqw" }}>Little Amour Books</div>}
+                {/* Text/scrim only shown in preview when finishedArt is off — when the
+                    cover art already has the title baked in, makeBookPDF skips this whole
+                    layer, so the preview has to match or it'd lie about what prints. */}
+                {!d.finishedArt && <>
+                  <div style={{ position: "absolute", left: 0, right: 0, top: "27%", height: "42%", background: "rgba(10,8,22,0.88)" }} />
+                  <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 34 / 215.9 * 100 + "%", background: "rgba(10,8,22,0.88)" }} />
+                  {d.series && <div style={{ position: "absolute", left: 0, right: 0, top: "30%", textAlign: "center", color: "#c4a8d1", fontWeight: 700, fontSize: "5cqw", letterSpacing: 1 }}>{d.series.toUpperCase()}</div>}
+                  <div style={{ position: "absolute", left: "8%", right: "8%", top: "38%", textAlign: "center", color: C.cream, fontWeight: 700, fontSize: "9cqw", fontFamily: "Georgia,serif", lineHeight: 1.15 }}>{d.title || book.title || "Untitled"}</div>
+                  {d.subtitle && <div style={{ position: "absolute", left: "10%", right: "10%", top: "48%", textAlign: "center", color: "#e1d6e8", fontStyle: "italic", fontSize: "5.5cqw" }}>{d.subtitle}</div>}
+                  {d.authorName && <div style={{ position: "absolute", left: 0, right: 0, top: "56%", textAlign: "center", color: C.cream, fontSize: "6cqw" }}>{d.authorName}</div>}
+                  {d.showAgeBadge !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "16%", textAlign: "center", color: "#c4a8d1", fontSize: "4cqw", letterSpacing: 0.5 }}>{(d.ageRange || "Ages 3–6").toUpperCase()}</div>}
+                  {d.showLogo !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "5%", textAlign: "center", color: C.mauve, fontSize: "4.5cqw" }}>Little Amour Books</div>}
+                </>}
               </div>
             )}
             <details style={{ marginTop: 10 }}>
@@ -269,6 +272,7 @@ function CoverBuilder({ pub, setPub, book, collection, done }) {
           <Field label="Style Notes"><TI value={d.styleNotes || ""} onChange={v => s("styleNotes", v)} placeholder="Soft watercolour, warm palette…" multi rows={3} /></Field>
         </div>
       </div>
+      <Toggle label="My cover image already has the title/author on it - don't print text over it" value={!!d.finishedArt} onChange={v => s("finishedArt", v)} />
       <Toggle label="Show Little Amour Books logo" value={d.showLogo !== false} onChange={v => s("showLogo", v)} />
       <Toggle label="Show age range badge" value={d.showAgeBadge !== false} onChange={v => s("showAgeBadge", v)} />
       <div style={{ background: C.cardAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginTop: 4 }}>
@@ -601,6 +605,12 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     // subtitle anyway. A light scrim let that stray text show through underneath ours,
     // reading as duplicated, mismatched text. A near-opaque band hides it completely
     // regardless of what the model does, instead of relying on the model behaving.
+    // Cover art that already has the title/author baked into the pixels (the
+    // "My cover already has the title on it" toggle below) skips this entire
+    // block — scrim included — same reasoning as the per-page finishedArt flag:
+    // drawing our own text on top of art that already has text is what caused
+    // the duplicated/overwritten title Kirby saw on the real export.
+    if (!cover.finishedArt) {
     if (coverImageDrawn) {
       try {
         doc.saveGraphicsState();
@@ -631,6 +641,7 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       doc.text((cover.ageRange || "Ages 3–6").toUpperCase(), W / 2, H - 26, { align: "center" });
     }
     if (cover.showLogo !== false) { doc.setFontSize(10); doc.setTextColor(155, 126, 184); doc.text("Little Amour Books", W / 2, H - 14, { align: "center" }); }
+    } // end !cover.finishedArt
 
     // Copyright page
     doc.addPage([W, H]);
@@ -669,8 +680,14 @@ function ExportCenter({ pub, setPub, book, author, done }) {
               const props = doc.getImageProperties(pg.img);
               if (props && props.width && props.height) {
                 const srcRatio = props.width / props.height;
-                if (srcRatio > 1) { drawH = 215.9; drawW = 215.9 * srcRatio; }
-                else { drawW = 215.9; drawH = 215.9 / srcRatio; }
+                // "Contain" fit, not "cover" - this image IS the finished page
+                // (text baked into the pixels). Cropping any edge risks slicing off
+                // baked-in text, which is exactly what was happening on later pages
+                // whose source art wasn't a perfect square (different repaint pass /
+                // pipeline). Fit the whole image inside the box and center it, letting
+                // the page background show on any leftover strip, instead of cropping.
+                if (srcRatio > 1) { drawW = 215.9; drawH = 215.9 / srcRatio; }
+                else { drawH = 215.9; drawW = 215.9 * srcRatio; }
                 drawX = (215.9 - drawW) / 2;
                 drawY = by + (215.9 - drawH) / 2;
               }
