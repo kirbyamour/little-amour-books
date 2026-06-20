@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
-import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap, ComposedCover } from "./Bookstore";
+import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap } from "./Bookstore";
 import { supabase } from "./supabaseClient";
 import {
   TermsOfSalePage, RefundPolicyPage, DigitalLicensePage, ShippingPolicyPage,
@@ -293,13 +293,15 @@ function KitchenScene() {
 function Cover({ book, large }) {
   const realCover = coverImageMap[book.id];
   if (realCover) {
-    // ComposedCover draws the real image plus the same title/author/age-badge overlay
-    // approved in Publishing — see its definition in Bookstore.jsx for why a bare <img>
-    // isn't enough (the saved image never has text baked into its pixels).
+    // Every place this component renders (homepage grid, /books grid, author-page grid,
+    // the book detail page, checkout) already shows book.title/authorName as real page
+    // text right next to it — the ComposedCover scrim+title overlay (used in Publishing's
+    // own preview, and in MiniCover's shop-grid thumbnails) would just duplicate that text
+    // and black out most of the actual artwork for no reason here. Show the full image.
     return (
       <div className={"cover" + (large ? " cover-lg" : "")} style={{ padding: 0 }} aria-label={"Cover of " + book.title}>
         {book.status === "coming" ? <span className="ribbon">Coming soon</span> : null}
-        <ComposedCover cover={realCover} fallbackTitle={book.title} fallbackAuthor={book.authorName} />
+        <img src={realCover.url} alt={"Cover of " + book.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "inherit" }} />
       </div>
     );
   }
