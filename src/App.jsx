@@ -3262,7 +3262,13 @@ CRITICAL: You have NOT locked, saved, added, or generated anything by writing th
         title: j.title && j.title !== "best guess" ? j.title : b.title,
         characters: (j.characters && j.characters.length ? j.characters : b.characters),
         styleGuide: j.styleGuide || b.styleGuide || "",
-        pages: uploads.map((u, i) => ({ id: newId(), text: byN[i + 1] || (analyses[i] && analyses[i].text) || "", img: u.dataUrl })),
+        // finishedArt: true marks these as already-complete pages — art AND text were
+        // baked into the same uploaded pixels by the author before this ever reached us.
+        // The `text` field below is only a transcription Amora read off the image for her
+        // own reference (consistency checks, search) — it is NOT story copy waiting to be
+        // typeset. makeBookPDF (Publishing.jsx) must never draw it a second time under the
+        // image; that was the literal duplicate-text bug.
+        pages: uploads.map((u, i) => ({ id: newId(), text: byN[i + 1] || (analyses[i] && analyses[i].text) || "", img: u.dataUrl, finishedArt: true })),
       }));
       push("amora", `${j.note || "All done — your pages are in."} I placed your ${uploads.length} finished pages in order and kept your words on each one. Open the book to see everything — and run the consistency check when you're ready.`);
       setTimeout(onDone, 1100);
@@ -3705,6 +3711,12 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                       ref={(el) => { pageFileInputs.current[p.id] = el; }}
                       onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) uploadPageImage(p, f); }} />
                     {pgImgErr[p.id] ? <span className="fine" style={{ color: "#9E4A44" }}>{pgImgErr[p.id]}</span> : null}
+                    {p.img ? (
+                      <label className="fine" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                        <input type="checkbox" checked={!!p.finishedArt} onChange={(e) => setPage(p.id, { finishedArt: e.target.checked })} />
+                        This image already has the text on it — don't print the text below it again
+                      </label>
+                    ) : null}
                   </div>
                   <PageChat book={book} page={p}
                     onApply={(text) => setPage(p.id, { text })}

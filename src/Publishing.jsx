@@ -551,8 +551,14 @@ function ExportCenter({ pub, setPub, book, author, done }) {
   };
 
   const makeBookPDF = async (printMode = false) => {
-    const bleed = printMode ? 3.175 : 0;
-    const W = 215.9 + bleed * 2, H = 215.9 + bleed * 2;
+    // KDP only adds bleed once — on the single outer trim edge — plus once each on top
+    // and bottom. It does NOT add bleed on the spine/inner edge (that margin is already
+    // covered by the live-area safety margin, not by extra paper). The previous version
+    // added 0.125in to every side (8.75 x 8.75 for an 8.5 x 8.5 trim), which is not a
+    // size KDP's own bleed-interior spec accepts — the correct page size is 8.625 x 8.75.
+    const bx = printMode ? 3.175 : 0; // 0.125in, added once (outer edge)
+    const by = printMode ? 3.175 : 0; // 0.125in, added to top AND to bottom
+    const W = 215.9 + bx, H = 215.9 + by * 2;
     const doc = new jsPDF({ unit: "mm", format: [W, H] });
     const pgs = book.pages || [];
     const cover = pub.cover || {};
@@ -647,35 +653,62 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       doc.addPage([W, H]);
       const pg = pgs[i];
       doc.setFillColor(245, 238, 225); doc.rect(0, 0, W, H, "F");
-      if (pg.img && (pg.img.startsWith("data:") || pg.img.startsWith("http"))) {
-        try {
-          const fmt = pg.img.includes("png") ? "PNG" : "JPEG";
-          const boxW = 215.9, boxH = 215.9 * 0.68;
-          // AI-painted pages are all portrait_4_3, so they've always filled this box cleanly.
-          // An author's own uploaded photo (different camera, different crop) won't reliably
-          // match that ratio — stretching it to fill the box would distort it. Fit it inside
-          // the box preserving its real aspect ratio instead, centered, with the page's own
-          // background showing on whichever side is left over.
-          let drawW = boxW, drawH = boxH, drawX = bleed, drawY = bleed;
+      const hasImg = pg.img && (pg.img.startsWith("data:") || pg.img.startsWith("http"));
+      if (pg.finishedArt) {
+        // This page came in through "Build the book from my uploads" (App.jsx) — the
+        // author's own finished page, art and text already baked into the same pixels.
+        // pg.text here is only a transcription Amora kept for her own reference (consistency
+        // checks, search) — it is NOT story copy waiting to be typeset. Drawing it again
+        // below the image was the literal duplicate-text bug. Treat the image as the whole
+        // finished page: fill the entire live trim area, nothing else gets drawn on top.
+        if (hasImg) {
           try {
-            const props = doc.getImageProperties(pg.img);
-            if (props && props.width && props.height) {
-              const srcRatio = props.width / props.height;
-              const boxRatio = boxW / boxH;
-              if (srcRatio > boxRatio) { drawW = boxW; drawH = boxW / srcRatio; }
-              else { drawH = boxH; drawW = boxH * srcRatio; }
-              drawX = bleed + (boxW - drawW) / 2;
-              drawY = bleed + (boxH - drawH) / 2;
-            }
-          } catch (e) { /* couldn't read dimensions — fall back to filling the box as before */ }
-          doc.addImage(pg.img, fmt, drawX, drawY, drawW, drawH);
-        } catch(e) { /* image unavailable — skip */ }
-      }
-      if (pg.text) {
-        doc.setFillColor(250, 244, 235); doc.rect(bleed, bleed + 215.9 * 0.68, 215.9, 215.9 * 0.32, "F");
-        doc.setFont("helvetica", "normal"); doc.setFontSize(12); doc.setTextColor(43, 36, 51);
-        const tl = doc.splitTextToSize(pg.text, 185);
-        doc.text(tl, W / 2, bleed + 215.9 * 0.74, { align: "center" });
+            const fmt = pg.img.includes("png") ? "PNG" : "JPEG";
+            let drawW = 215.9, drawH = 215.9, drawX = 0, drawY = by;
+            try {
+              const props = doc.getImageProperties(pg.img);
+              if (props && props.width && props.height) {
+                const srcRatio = props.width / props.height;
+                if (srcRatio > 1) { drawH = 215.9; drawW = 215.9 * srcRatio; }
+                else { drawW = 215.9; drawH = 215.9 / srcRatio; }
+                drawX = (215.9 - drawW) / 2;
+                drawY = by + (215.9 - drawH) / 2;
+              }
+            } catch (e) { /* couldn't read dimensions — fall back to filling the trim box as-is */ }
+            doc.addImage(pg.img, fmt, drawX, drawY, drawW, drawH);
+          } catch (e) { /* image unavailable — skip */ }
+        }
+      } else {
+        if (hasImg) {
+          try {
+            const fmt = pg.img.includes("png") ? "PNG" : "JPEG";
+            const boxW = 215.9, boxH = 215.9 * 0.68;
+            // AI-painted pages are all portrait_4_3, so they've always filled this box cleanly.
+            // An author's own uploaded photo (different camera, different crop) won't reliably
+            // match that ratio — stretching it to fill the box would distort it. Fit it inside
+            // the box preserving its real aspect ratio instead, centered, with the page's own
+            // background showing on whichever side is left over.
+            let drawW = boxW, drawH = boxH, drawX = 0, drawY = by;
+            try {
+              const props = doc.getImageProperties(pg.img);
+              if (props && props.width && props.height) {
+                const srcRatio = props.width / props.height;
+                const boxRatio = boxW / boxH;
+                if (srcRatio > boxRatio) { drawW = boxW; drawH = boxW / srcRatio; }
+                else { drawH = boxH; drawW = boxH * srcRatio; }
+                drawX = (boxW - drawW) / 2;
+                drawY = by + (boxH - drawH) / 2;
+              }
+            } catch (e) { /* couldn't read dimensions — fall back to filling the box as before */ }
+            doc.addImage(pg.img, fmt, drawX, drawY, drawW, drawH);
+          } catch (e) { /* image unavailable — skip */ }
+        }
+        if (pg.text) {
+          doc.setFillColor(250, 244, 235); doc.rect(0, by + 215.9 * 0.68, 215.9, 215.9 * 0.32, "F");
+          doc.setFont("helvetica", "normal"); doc.setFontSize(12); doc.setTextColor(43, 36, 51);
+          const tl = doc.splitTextToSize(pg.text, 185);
+          doc.text(tl, 215.9 / 2, by + 215.9 * 0.74, { align: "center" });
+        }
       }
       if (printMode) { doc.setFontSize(8); doc.setTextColor(160, 140, 170); doc.text(String(i + 1), W / 2, H - 6, { align: "center" }); }
     }
@@ -724,12 +757,37 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     };
   };
 
+  // Cheap, non-blocking heads-up before export: a real cover/page image that's too
+  // small will print soft or blurry no matter how the PDF math works out, and the
+  // author has no other way to see that until the physical book is in their hands.
+  // 200 DPI at the live trim size is the floor — below that it's worth a warning,
+  // not a hard block, since the author may still want to ship it anyway.
+  const checkImageDPI = (dataUrl, label, trimIn = 8.5) =>
+    new Promise((resolve) => {
+      if (!dataUrl || !dataUrl.startsWith("data:")) return resolve();
+      const img = new window.Image();
+      img.onload = () => {
+        const dpi = Math.min(img.naturalWidth, img.naturalHeight) / trimIn;
+        if (dpi < 200) {
+          addLog(`  ⚠ ${label} is ${img.naturalWidth}×${img.naturalHeight}px — about ${Math.round(dpi)} DPI at ${trimIn}". Best for print is 300 DPI (${Math.round(trimIn * 300)}×${Math.round(trimIn * 300)}px or larger) — below 200 DPI it'll likely look soft or blurry on a printed page.`);
+        }
+        resolve();
+      };
+      img.onerror = () => resolve();
+      img.src = dataUrl;
+    });
+
   const runExport = async () => {
     setBusy(true); setLog([]); setFinished(false);
     const zip = new JSZip();
     const safe = ((pub.metadata?.title || book.title) || "Book").replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_");
     const root = zip.folder(`${safe}_Final_Export`);
     try {
+      addLog("Checking image resolution…");
+      await checkImageDPI(pub.cover?.coverImageUrl, "Cover image");
+      const pgs0 = book.pages || [];
+      for (let i = 0; i < pgs0.length; i++) await checkImageDPI(pgs0[i].img, `Page ${i + 1} image`);
+
       addLog("Building customer digital files…");
       const cust = root.folder("Customer_Digital_Files");
 
