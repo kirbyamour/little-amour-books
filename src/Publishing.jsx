@@ -538,14 +538,26 @@ function ExportCenter({ pub, setPub, book, author, done }) {
 
   const addLog = msg => setLog(l => [...l, msg]);
 
+  // jsPDF's built-in fonts (helvetica) only cover WinAnsi/Latin-1 glyphs - emoji and
+  // symbols like checkmarks fall outside that and render as missing-glyph boxes or
+  // blank space. That showed up as garbled characters in the Read Me First and Rights
+  // Checklist PDFs. Strip anything outside what helvetica can actually draw instead of
+  // hoping the font silently has a fallback.
+  const cleanText = (str) => String(str ?? "")
+    .replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}]/gu, "")
+    .replace(/\u2713/g, "-")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+
   const makeTextPDF = (title, lines) => {
     const doc = new jsPDF({ unit: "mm", format: [215.9, 279.4] });
     doc.setFillColor(250, 244, 235); doc.rect(0, 0, 215.9, 279.4, "F");
     doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(43, 36, 51);
-    doc.text(title, 107.95, 30, { align: "center" });
+    doc.text(cleanText(title), 107.95, 30, { align: "center" });
     doc.setFont("helvetica", "normal"); doc.setFontSize(11);
     let y = 48;
-    lines.forEach(line => {
+    lines.forEach(rawLine => {
+      const line = cleanText(rawLine);
       if (y > 260) { doc.addPage(); y = 20; doc.setFillColor(250, 244, 235); doc.rect(0, 0, 215.9, 279.4, "F"); }
       const split = doc.splitTextToSize(line || " ", 168);
       split.forEach(s => { doc.text(s, 24, y); y += 6.5; });
@@ -554,7 +566,7 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     return doc;
   };
 
-  const makeBookPDF = async (printMode = false) => {
+  const makeBookPDF = async (printMode = false, personalUseNote = false) => {
     // KDP only adds bleed once — on the single outer trim edge — plus once each on top
     // and bottom. It does NOT add bleed on the spine/inner edge (that margin is already
     // covered by the live-area safety margin, not by extra paper). The previous version
@@ -642,6 +654,19 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     }
     if (cover.showLogo !== false) { doc.setFontSize(10); doc.setTextColor(155, 126, 184); doc.text("Little Amour Books", W / 2, H - 14, { align: "center" }); }
     } // end !cover.finishedArt
+
+    // Personal-use note — only for the Printable PDF (home-printing copy). Customers
+    // need this stated inside the file itself, not just in a separate Read Me PDF that
+    // could get separated from it.
+    if (personalUseNote) {
+      doc.addPage([W, H]);
+      doc.setFillColor(250, 244, 235); doc.rect(0, 0, W, H, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(43, 36, 51);
+      doc.text("Personal Use - Printable Edition", W / 2, H * 0.4, { align: "center", maxWidth: W - 30 });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
+      const note = doc.splitTextToSize("This file is licensed for personal, non-commercial home printing only. Please do not reproduce, redistribute, or resell printed or digital copies.", W - 40);
+      doc.text(note, W / 2, H * 0.48, { align: "center" });
+    }
 
     // Copyright page
     doc.addPage([W, H]);
@@ -777,20 +802,40 @@ function ExportCenter({ pub, setPub, book, author, done }) {
   // Cheap, non-blocking heads-up before export: a real cover/page image that's too
   // small will print soft or blurry no matter how the PDF math works out, and the
   // author has no other way to see that until the physical book is in their hands.
-  // 200 DPI at the live trim size is the floor — below that it's worth a warning,
-  // not a hard block, since the author may still want to ship it anyway.
-  const checkImageDPI = (dataUrl, label, trimIn = 8.5) =>
+  // Tiered by severity instead of one flat cutoff, and every finding is collected
+  // (not just logged) so the Validation Report can show the same information instead
+  // of it disappearing once the export log scrolls away.
+  const checkImageDPI = (dataUrl, label, trimIn = 8.5, findings = []) =>
     new Promise((resolve) => {
-      if (!dataUrl || !dataUrl.startsWith("data:")) return resolve();
+      if (!dataUrl || !dataUrl.startsWith("data:")) {
+        const msg = `${label} is missing — this page will use a plain background instead of artwork.`;
+        addLog(`  ⚠ ${msg}`);
+        findings.push({ level: "warn", area: label, message: msg });
+        return resolve();
+      }
       const img = new window.Image();
       img.onload = () => {
         const dpi = Math.min(img.naturalWidth, img.naturalHeight) / trimIn;
-        if (dpi < 200) {
-          addLog(`  ⚠ ${label} is ${img.naturalWidth}×${img.naturalHeight}px — about ${Math.round(dpi)} DPI at ${trimIn}". Best for print is 300 DPI (${Math.round(trimIn * 300)}×${Math.round(trimIn * 300)}px or larger) — below 200 DPI it'll likely look soft or blurry on a printed page.`);
+        const dims = `${img.naturalWidth}×${img.naturalHeight}px — about ${Math.round(dpi)} DPI at ${trimIn}"`;
+        if (dpi < 150) {
+          const msg = `${label} is ${dims}. This is well below print quality and will likely look noticeably blurry or pixelated once printed — not print-ready as-is.`;
+          addLog(`  ⚠ ${msg}`);
+          findings.push({ level: "warn", area: label, message: msg });
+        } else if (dpi < 200) {
+          const msg = `${label} is ${dims}. Low print resolution — may print blurry.`;
+          addLog(`  ⚠ ${msg}`);
+          findings.push({ level: "warn", area: label, message: msg });
+        } else if (dpi < 300) {
+          const msg = `${label} is ${dims}. Good digital quality, but may not be optimal for professional print (300 DPI recommended — ${Math.round(trimIn * 300)}×${Math.round(trimIn * 300)}px or larger).`;
+          addLog(`  i ${msg}`);
+          findings.push({ level: "info", area: label, message: msg });
         }
         resolve();
       };
-      img.onerror = () => resolve();
+      img.onerror = () => {
+        findings.push({ level: "warn", area: label, message: `${label} could not be read for a resolution check.` });
+        resolve();
+      };
       img.src = dataUrl;
     });
 
@@ -799,11 +844,18 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     const zip = new JSZip();
     const safe = ((pub.metadata?.title || book.title) || "Book").replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_");
     const root = zip.folder(`${safe}_Final_Export`);
+    // Every check below pushes into this instead of just logging, so the same findings
+    // drive the Validation Report (PASS / PASS WITH WARNINGS / FAIL) at the end —
+    // one source of truth instead of the log and the report drifting apart.
+    const findings = [];
     try {
-      addLog("Checking image resolution…");
-      await checkImageDPI(pub.cover?.coverImageUrl, "Cover image");
       const pgs0 = book.pages || [];
-      for (let i = 0; i < pgs0.length; i++) await checkImageDPI(pgs0[i].img, `Page ${i + 1} image`);
+      if (pgs0.length === 0) {
+        findings.push({ level: "fail", area: "Pages", message: "This book has no story pages — there is nothing to export." });
+      }
+      addLog("Checking image resolution…");
+      await checkImageDPI(pub.cover?.coverImageUrl, "Cover image", 8.5, findings);
+      for (let i = 0; i < pgs0.length; i++) await checkImageDPI(pgs0[i].img, `Page ${i + 1} image`, 8.5, findings);
 
       addLog("Building customer digital files…");
       const cust = root.folder("Customer_Digital_Files");
@@ -813,7 +865,7 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       cust.file(`${safe}_Digital_Reading.pdf`, dPDF.output("arraybuffer"));
 
       addLog("  Printable PDF…");
-      const pPDF = await makeBookPDF(false);
+      const pPDF = await makeBookPDF(false, true);
       cust.file(`${safe}_Printable.pdf`, pPDF.output("arraybuffer"));
 
       addLog("  EPUB placeholder…");
@@ -850,25 +902,85 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       addLog("  Cover print files…");
       const cv = pub.cover || {};
       const bc = pub.backCover || {};
-      const cwb = makeTextPDF("Full Cover — With Barcode", [
-        `Title: ${cv.title || book.title}`, `Author: ${cv.authorName || ""}`, `ISBN: ${pub.copyright?.isbn || bc.isbn || "TBD"}`,
-        "", "[ FRONT COVER + SPINE + BACK COVER — PRINT SPREAD ]",
-        "[ BARCODE AREA RESERVED ON BACK COVER ]", "",
-        "Replace this placeholder with your professional cover art spread.",
-        `Trim: ${pub.metadata?.trimSize || '8.5" × 8.5"'}  |  Bleed: 0.125\" all sides`,
-        "Spine width: calculated by printer based on page count and paper stock.",
-      ]);
-      print.file("Full_Cover_With_Barcode.pdf", cwb.output("arraybuffer"));
+      // Previously both "full cover" files were pure text descriptions of a spread
+      // that didn't exist — neither real art nor an honestly-labeled mockup. This
+      // builds an actual front/spine/back layout: the real front cover art (if the
+      // author has one) goes in the front panel at true size, and the spine/back —
+      // which we have no real art for — are explicitly banner-labeled as placeholder
+      // so nobody mistakes this for a finished print-ready spread.
+      const makeCoverSpread = (withBarcode) => {
+        const spineW = 6; // mm — placeholder; real spine width is printer-calculated from final page count + paper stock at submission
+        const panelW = 215.9, panelH = 215.9;
+        const totalW = panelW * 2 + spineW;
+        const doc = new jsPDF({ unit: "mm", format: [totalW, panelH] });
+        doc.setFillColor(250, 244, 235); doc.rect(0, 0, totalW, panelH, "F");
+        doc.setFillColor(255, 224, 102); doc.rect(0, 0, totalW, 11, "F");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(40, 30, 10);
+        doc.text("PLACEHOLDER SPREAD - front cover art is final; spine and back cover below are NOT final and must be completed before print submission.",
+          totalW / 2, 7, { align: "center", maxWidth: totalW - 10 });
 
-      const cnb = makeTextPDF("Full Cover — No Barcode", [
-        `Title: ${cv.title || book.title}`, `Author: ${cv.authorName || ""}`,
-        "", "[ FRONT + SPINE + BACK — NO BARCODE — for digital or advance copies ]",
-      ]);
+        // Back panel
+        doc.setDrawColor(180, 170, 190);
+        doc.rect(2, 13, panelW - 4, panelH - 15);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
+        doc.text("BACK COVER - placeholder", panelW / 2, panelH / 2 - 14, { align: "center" });
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+        doc.text(cleanText(`Title: ${cv.title || book.title || ""}`), panelW / 2, panelH / 2 - 2, { align: "center" });
+        if (bc.blurb) {
+          const bl = doc.splitTextToSize(cleanText(bc.blurb), panelW - 30);
+          doc.text(bl, panelW / 2, panelH / 2 + 10, { align: "center" });
+        }
+        if (withBarcode) {
+          doc.setDrawColor(80, 70, 90); doc.rect(panelW - 47, panelH - 35, 37, 22);
+          doc.setFontSize(7);
+          doc.text("BARCODE AREA RESERVED", panelW - 28.5, panelH - 23, { align: "center" });
+          doc.text(cleanText(`ISBN: ${pub.copyright?.isbn || bc.isbn || "TBD"}`), panelW - 28.5, panelH - 19, { align: "center" });
+        }
+
+        // Spine
+        doc.setFillColor(235, 226, 240); doc.rect(panelW, 13, spineW, panelH - 15, "F");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(6); doc.setTextColor(80, 70, 90);
+        doc.text("SPINE - placeholder width", panelW + spineW / 2, panelH / 2, { align: "center", angle: 90 });
+
+        // Front panel — real cover art if we have it, otherwise an honest placeholder box
+        const fx = panelW + spineW;
+        if (cv.coverImageUrl && cv.coverImageUrl.startsWith("data:")) {
+          try {
+            const fmt = cv.coverImageUrl.includes("png") ? "PNG" : "JPEG";
+            doc.addImage(cv.coverImageUrl, fmt, fx, 13, panelW, panelH - 15);
+          } catch (e) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
+            doc.text("FRONT COVER - image unavailable", fx + panelW / 2, panelH / 2, { align: "center" });
+          }
+        } else {
+          doc.setDrawColor(180, 170, 190); doc.rect(fx + 2, 13, panelW - 4, panelH - 15);
+          doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
+          doc.text("FRONT COVER - placeholder (no cover art uploaded)", fx + panelW / 2, panelH / 2, { align: "center", maxWidth: panelW - 20 });
+        }
+        return doc;
+      };
+
+      const cwb = makeCoverSpread(true);
+      print.file("Full_Cover_With_Barcode.pdf", cwb.output("arraybuffer"));
+      const cnb = makeCoverSpread(false);
       print.file("Full_Cover_No_Barcode.pdf", cnb.output("arraybuffer"));
+      if (cv.coverImageUrl && cv.coverImageUrl.startsWith("data:")) {
+        findings.push({ level: "info", area: "Cover spread", message: "Front panel uses your real cover art; spine and back panel are still placeholders and must be finished before print submission." });
+      } else {
+        findings.push({ level: "warn", area: "Cover spread", message: "No cover art uploaded — the full cover spread files are placeholders only, not print-ready." });
+      }
 
       addLog("Building metadata files…");
       const meta = root.folder("Metadata");
       const mObj = metaObj();
+      // The author-entered page count is a guess made before the book was finished.
+      // The interior PDF that just got built is the actual truth — use that instead of
+      // letting a stale manual number ship in the metadata sheet.
+      const realPageCount = iPDF.internal.getNumberOfPages();
+      if (pub.metadata?.pageCount && String(pub.metadata.pageCount) !== String(realPageCount)) {
+        findings.push({ level: "info", area: "Metadata", message: `Page count auto-corrected to ${realPageCount} (counted from the actual interior PDF) — the entered value was ${pub.metadata.pageCount}.` });
+      }
+      mObj.pageCount = String(realPageCount);
       meta.file("Metadata_Sheet.json", JSON.stringify(mObj, null, 2));
       const mPDF = makeTextPDF("Metadata Sheet", Object.entries(mObj).map(([k, v]) => `${k.replace(/([A-Z])/g, " $1").trim()}: ${v}`));
       meta.file("Metadata_Sheet.pdf", mPDF.output("arraybuffer"));
@@ -892,24 +1004,70 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       }
       if (book.styleGuide) arch.file("Style_Guide.txt", book.styleGuide);
       const imgs = arch.folder("Image_Assets");
+      if (cv.coverImageUrl && cv.coverImageUrl.startsWith("data:")) {
+        const cext = cv.coverImageUrl.includes("png") ? "png" : "jpg";
+        imgs.file(`cover.${cext}`, cv.coverImageUrl.split(",")[1], { base64: true });
+      }
       (book.pages || []).forEach((p, i) => {
         if (p.img?.startsWith("data:")) {
           const ext = p.img.includes("png") ? "png" : "jpg";
           imgs.file(`page_${String(i+1).padStart(2,"0")}.${ext}`, p.img.split(",")[1], { base64: true });
         }
       });
+      // Metadata and rights live in their own folder too, but the Source Archive is
+      // meant to be a complete, self-contained record of the book on its own —
+      // duplicating these small files here means nobody has to dig through the rest of
+      // the bundle to find them later.
+      arch.file("Metadata_Sheet.json", JSON.stringify(mObj, null, 2));
+      arch.file("Rights_Data.json", JSON.stringify({
+        rights: pub.copyright?.rights || "All rights reserved.",
+        aiDisclosure: mObj.aiDisclosure, isbn: mObj.isbn, copyrightYear: mObj.copyrightYear,
+      }, null, 2));
+
+      // Validation Report — the one file that tells the truth about whether this
+      // export is actually done, instead of leaving the author to notice a low-res
+      // image or a missing page on their own after it's already printed. Built from
+      // every finding collected above, not a separate pass that could drift from them.
+      addLog("Running validation…");
+      const hasFail = findings.some(f => f.level === "fail");
+      const hasWarn = findings.some(f => f.level === "warn");
+      const status = hasFail ? "FAIL" : hasWarn ? "PASS WITH WARNINGS" : "PASS";
+      const valReport = {
+        status, generatedAt: new Date().toISOString(), book: mObj.title,
+        checks: findings.length ? findings : [{ level: "info", area: "Overall", message: "No issues found." }],
+      };
+      const val = root.folder("Validation");
+      val.file("Validation_Report.json", JSON.stringify(valReport, null, 2));
+      const vPDF = makeTextPDF("Validation Report", [
+        `STATUS: ${status}`, `Book: ${mObj.title}`, `Generated: ${valReport.generatedAt}`, "",
+        ...valReport.checks.map(f => `[${f.level.toUpperCase()}] ${f.area}: ${f.message}`),
+      ]);
+      val.file("Validation_Report.pdf", vPDF.output("arraybuffer"));
+      addLog(status === "FAIL" ? "✗ Validation FAILED — see Validation Report." : status === "PASS WITH WARNINGS" ? "⚠ Validation passed with warnings — see Validation Report." : "✓ Validation passed.");
 
       addLog("Packaging ZIP…");
+      // A FAILED validation never gets to call itself a "Final Export" — the filename
+      // itself has to say so, since that's the one thing the author will see before
+      // ever opening the ZIP.
+      const zipLabel = status === "FAIL" ? `${safe}_INCOMPLETE_NOT_FINAL` : `${safe}_Final_Export`;
       const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `${safe}_Final_Export.zip`; a.click();
+      const a = document.createElement("a"); a.href = url; a.download = `${zipLabel}.zip`; a.click();
       URL.revokeObjectURL(url);
 
-      setPub(p => ({ ...p, digitalPdfDone: true, printPdfDone: true, exportedAt: new Date().toISOString() }));
-      done("digital_pdf"); done("print_pdf"); done("epub");
-      addLog("✓ Export complete — ZIP downloaded!");
-      setFinished(true);
-    } catch(e) { addLog("✗ Error: " + e.message); }
+      if (status !== "FAIL") {
+        setPub(p => ({ ...p, digitalPdfDone: true, printPdfDone: true, exportedAt: new Date().toISOString() }));
+        done("digital_pdf"); done("print_pdf"); done("epub");
+        addLog("✓ Export complete — ZIP downloaded!");
+        setFinished(true);
+      } else {
+        addLog("✗ Export built but did NOT pass validation — not marked Final Export. Fix the issues in the Validation Report and re-run.");
+        setFinished("fail");
+      }
+    } catch(e) {
+      addLog("✗ Error: " + e.message);
+      setFinished("fail");
+    }
     setBusy(false);
   };
 
@@ -922,7 +1080,8 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     ["🎨", "Full Cover — with & without barcode", "Print spread placeholders"],
     ["📋", "Metadata Sheet", "JSON + PDF for marketplace listings"],
     ["✅", "Rights Checklist", "Internal legal record"],
-    ["💾", "Source Archive", "Project JSON, full text, all image assets"],
+    ["💾", "Source Archive", "Project JSON, full text, all image assets, cover + rights data"],
+    ["🛡", "Validation Report", "PASS / PASS WITH WARNINGS / FAIL — JSON + PDF"],
   ];
 
   return (
@@ -946,10 +1105,16 @@ function ExportCenter({ pub, setPub, book, author, done }) {
           {log.map((l, i) => <div key={i} style={{ color: l.startsWith("✓") ? C.green : l.startsWith("✗") ? C.red : C.muted, marginBottom: 2 }}>{l}</div>)}
         </div>
       )}
-      {finished && (
+      {finished === "fail" && (
+        <div style={{ marginTop: 16, background: "#3a1a1a", border: `1px solid ${C.red}`, borderRadius: 8, padding: "14px 18px" }}>
+          <p style={{ color: C.red, fontWeight: 700, marginBottom: 4 }}>✗ Export built, but did not pass validation</p>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>The ZIP downloaded but is named "INCOMPLETE_NOT_FINAL" and is not marked as your finished export. Open Validation/Validation_Report.pdf inside it to see what to fix, then re-run.</p>
+        </div>
+      )}
+      {finished === true && (
         <div style={{ marginTop: 16, background: "#1a3a2a", border: `1px solid ${C.green}`, borderRadius: 8, padding: "14px 18px" }}>
           <p style={{ color: C.green, fontWeight: 700, marginBottom: 4 }}>✓ Publishing package downloaded</p>
-          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Check Downloads for the ZIP. Customer files, print files, metadata, and source archive are all inside.</p>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Check Downloads for the ZIP. Customer files, print files, metadata, source archive, and a validation report are all inside.</p>
         </div>
       )}
     </div>
