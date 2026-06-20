@@ -63,7 +63,7 @@ function buildCoverPrompt(book, collection, cover) {
   return [
     `STYLE (locked): ${styleGuide}`,
     ``,
-    `Create a single front-cover illustration for a children's picture book titled "${title}". Leave open, uncluttered space in the upper-middle third of the image for the title text to be overlaid afterward — do not paint any words, letters, or a title into the image yourself.`,
+    `Create a single front-cover illustration for a children's picture book titled "${title}". This must be a pure illustration with ZERO typography anywhere in the frame — no title, no words, no letters, no numbers, no signage text, no book spine, no captions. Leave open, uncluttered negative space across the upper-middle third and the bottom strip of the image so real typeset text can be overlaid afterward.`,
     ``,
     `CHARACTERS (if relevant to the cover scene):\n${charManifest}`,
     ``,
@@ -189,7 +189,12 @@ function CoverBuilder({ pub, setPub, book, collection, done }) {
       const seed = collection ? collection.seed : book.seed;
       const r = await fetch("/api/image", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, seed, negative_prompt: COVER_NEGATIVE_PROMPT, ...(loraUrl ? { loraUrl } : {}) }),
+        // square_hd: covers are a square trim, but api/image.js's other callers (book
+        // pages) need the portrait default, so this has to be requested explicitly here.
+        // Without it, covers were generated 4:3 portrait and then force-cropped into a
+        // square box client-side — slicing off whatever the model painted near the top/
+        // bottom edges.
+        body: JSON.stringify({ prompt, seed, negative_prompt: COVER_NEGATIVE_PROMPT, imageSize: "square_hd", ...(loraUrl ? { loraUrl } : {}) }),
       });
       const data = await r.json();
       if (data.error) { setErr(data.error); return; }
@@ -241,16 +246,18 @@ function CoverBuilder({ pub, setPub, book, collection, done }) {
               // prints. Before this, the box below only ever showed the bare illustration;
               // title/subtitle/author/series/age-range/publisher were invisible until the
               // PDF was exported, even though every one of those fields is filled in above.
-              <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", borderRadius: 8, marginTop: 8, overflow: "hidden", background: "#140f28" }}>
+              <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", borderRadius: 8, marginTop: 8, overflow: "hidden", background: "#140f28", containerType: "inline-size" }}>
                 <img src={d.coverImageUrl} alt="Cover" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={() => {}} />
-                <div style={{ position: "absolute", left: 0, right: 0, top: "27%", height: "42%", background: "rgba(10,8,22,0.42)" }} />
-                <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 34 / 215.9 * 100 + "%", background: "rgba(10,8,22,0.42)" }} />
-                {d.series && <div style={{ position: "absolute", left: 0, right: 0, top: "30%", textAlign: "center", color: "#c4a8d1", fontWeight: 700, fontSize: "5%", letterSpacing: 1 }}>{d.series.toUpperCase()}</div>}
-                <div style={{ position: "absolute", left: "8%", right: "8%", top: "38%", textAlign: "center", color: C.cream, fontWeight: 700, fontSize: "9%", fontFamily: "Georgia,serif", lineHeight: 1.15 }}>{d.title || book.title || "Untitled"}</div>
-                {d.subtitle && <div style={{ position: "absolute", left: "10%", right: "10%", top: "48%", textAlign: "center", color: "#e1d6e8", fontStyle: "italic", fontSize: "5.5%" }}>{d.subtitle}</div>}
-                {d.authorName && <div style={{ position: "absolute", left: 0, right: 0, top: "56%", textAlign: "center", color: C.cream, fontSize: "6%" }}>{d.authorName}</div>}
-                {d.showAgeBadge !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "16%", textAlign: "center", color: "#c4a8d1", fontSize: "4%", letterSpacing: 0.5 }}>{(d.ageRange || "Ages 3–6").toUpperCase()}</div>}
-                {d.showLogo !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "5%", textAlign: "center", color: C.mauve, fontSize: "4.5%" }}>Little Amour Books</div>}
+                {/* 0.88 opacity, matching the PDF export's scrim — see makeBookPDF for why
+                    this needs to be near-opaque rather than a light tint. */}
+                <div style={{ position: "absolute", left: 0, right: 0, top: "27%", height: "42%", background: "rgba(10,8,22,0.88)" }} />
+                <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 34 / 215.9 * 100 + "%", background: "rgba(10,8,22,0.88)" }} />
+                {d.series && <div style={{ position: "absolute", left: 0, right: 0, top: "30%", textAlign: "center", color: "#c4a8d1", fontWeight: 700, fontSize: "5cqw", letterSpacing: 1 }}>{d.series.toUpperCase()}</div>}
+                <div style={{ position: "absolute", left: "8%", right: "8%", top: "38%", textAlign: "center", color: C.cream, fontWeight: 700, fontSize: "9cqw", fontFamily: "Georgia,serif", lineHeight: 1.15 }}>{d.title || book.title || "Untitled"}</div>
+                {d.subtitle && <div style={{ position: "absolute", left: "10%", right: "10%", top: "48%", textAlign: "center", color: "#e1d6e8", fontStyle: "italic", fontSize: "5.5cqw" }}>{d.subtitle}</div>}
+                {d.authorName && <div style={{ position: "absolute", left: 0, right: 0, top: "56%", textAlign: "center", color: C.cream, fontSize: "6cqw" }}>{d.authorName}</div>}
+                {d.showAgeBadge !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "16%", textAlign: "center", color: "#c4a8d1", fontSize: "4cqw", letterSpacing: 0.5 }}>{(d.ageRange || "Ages 3–6").toUpperCase()}</div>}
+                {d.showLogo !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "5%", textAlign: "center", color: C.mauve, fontSize: "4.5cqw" }}>Little Amour Books</div>}
               </div>
             )}
             <details style={{ marginTop: 10 }}>
@@ -582,10 +589,16 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     // illustration — only needed when there's an actual image underneath the text.
     // Two bands (hero block + footer block) rather than one tall one, so the bulk of
     // the illustration in between stays visible instead of being half-blacked-out.
+    // Opacity is high (0.88), not a light tint: the image prompt tells the model not to
+    // paint its own text, but negative prompts on diffusion models are a request, not a
+    // guarantee — confirmed on a real export where the model painted its own title/
+    // subtitle anyway. A light scrim let that stray text show through underneath ours,
+    // reading as duplicated, mismatched text. A near-opaque band hides it completely
+    // regardless of what the model does, instead of relying on the model behaving.
     if (coverImageDrawn) {
       try {
         doc.saveGraphicsState();
-        if (doc.GState) doc.setGState(new doc.GState({ opacity: 0.42 }));
+        if (doc.GState) doc.setGState(new doc.GState({ opacity: 0.88 }));
         doc.setFillColor(10, 8, 22);
         doc.rect(0, H * 0.27, W, H * 0.42, "F"); // series + title + subtitle + author
         doc.rect(0, H - 34, W, 34, "F"); // age badge + publisher logo footer
@@ -994,6 +1007,42 @@ export default function PublishingModule({ book, setBook, author, collection, on
   const [tab, setTab] = useState("checklist");
   const [pub, setPubRaw] = useState(book.publishing || {});
   const [completed, setCompleted] = useState(() => new Set(book.publishingCompleted || []));
+  // Tab bar scroll handling. The bar has more steps (10 tabs + Back) than fit most
+  // screen widths, so it needs to scroll horizontally — but a plain overflowX:auto strip
+  // gives no visible cue that it scrolls, and a mouse wheel (which scrolls vertically by
+  // default) does nothing on it, which reads as "this doesn't move" even though the CSS
+  // technically supports scrolling. Fixed with: a wheel handler that redirects normal
+  // vertical scroll input into horizontal movement, plus explicit ◀ ▶ arrow buttons that
+  // always work regardless of input device, and disable themselves at each end so it's
+  // obvious when you've reached the first/last tab.
+  const tabBarRef = useRef(null);
+  const [tabScroll, setTabScroll] = useState({ atStart: true, atEnd: false });
+  const updateTabScroll = () => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    setTabScroll({
+      atStart: el.scrollLeft <= 2,
+      atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 2,
+    });
+  };
+  useEffect(() => { updateTabScroll(); }, []);
+  const scrollTabBar = dir => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * 180, behavior: "smooth" });
+    setTimeout(updateTabScroll, 200);
+  };
+  const onTabBarWheel = e => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    // Only hijack the wheel when there's nowhere for plain vertical scroll to go anyway
+    // (i.e. this is purely a horizontal strip) — and only redirect vertical intent.
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+      updateTabScroll();
+    }
+  };
 
   useEffect(() => { if (book.pages?.length > 0) markDone("pages"); }, []);
 
@@ -1080,16 +1129,36 @@ export default function PublishingModule({ book, setBook, author, collection, on
     <div style={{ display: "flex", minHeight: "100vh", background: C.night, fontFamily: "system-ui, sans-serif" }}>
       <ChecklistSidebar completed={completed} setTab={setTab} tab={tab} />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* Top nav */}
-        <div style={{ background: C.ink, borderBottom: `1px solid ${C.border}`, padding: "0 16px", display: "flex", alignItems: "center", gap: 2, overflowX: "auto", flexShrink: 0 }}>
-          <button onClick={onBack} style={{ color: C.muted, background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: "13px 10px", whiteSpace: "nowrap" }}>← Back to studio</button>
-          <div style={{ width: 1, height: 18, background: C.border, margin: "0 4px" }} />
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              style={{ background: "none", border: "none", cursor: "pointer", padding: "13px 11px", fontSize: 12, whiteSpace: "nowrap", color: tab === t.id ? C.gold : C.muted, borderBottom: tab === t.id ? `2px solid ${C.gold}` : "2px solid transparent" }}>
-              {t.label}
-            </button>
-          ))}
+        {/* Top nav — scrollable; see scrollTabBar/onTabBarWheel above for why this
+            needs explicit arrow buttons instead of relying on overflowX alone. */}
+        <div style={{ background: C.ink, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "stretch", flexShrink: 0 }}>
+          <button
+            onClick={() => scrollTabBar(-1)}
+            disabled={tabScroll.atStart}
+            aria-label="Scroll tabs left"
+            style={{ background: "none", border: "none", borderRight: `1px solid ${C.border}`, cursor: tabScroll.atStart ? "default" : "pointer", color: tabScroll.atStart ? C.border : C.cream, fontSize: 13, padding: "0 10px", flexShrink: 0 }}
+          >◀</button>
+          <div
+            ref={tabBarRef}
+            onScroll={updateTabScroll}
+            onWheel={onTabBarWheel}
+            style={{ padding: "0 16px", display: "flex", alignItems: "center", gap: 2, overflowX: "auto", scrollbarWidth: "thin", flex: 1 }}
+          >
+            <button onClick={onBack} style={{ color: C.muted, background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: "13px 10px", whiteSpace: "nowrap", flexShrink: 0 }}>← Back to studio</button>
+            <div style={{ width: 1, height: 18, background: C.border, margin: "0 4px", flexShrink: 0 }} />
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: "13px 11px", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0, color: tab === t.id ? C.gold : C.muted, borderBottom: tab === t.id ? `2px solid ${C.gold}` : "2px solid transparent" }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => scrollTabBar(1)}
+            disabled={tabScroll.atEnd}
+            aria-label="Scroll tabs right"
+            style={{ background: "none", border: "none", borderLeft: `1px solid ${C.border}`, cursor: tabScroll.atEnd ? "default" : "pointer", color: tabScroll.atEnd ? C.border : C.cream, fontSize: 13, padding: "0 10px", flexShrink: 0 }}
+          >▶</button>
         </div>
         {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "32px 40px", maxWidth: 880 }}>

@@ -56,7 +56,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { prompt, seed, negative_prompt, referenceImageUrl, strength, loraUrl, loraScale } = req.body;
+  const { prompt, seed, negative_prompt, referenceImageUrl, strength, loraUrl, loraScale, imageSize } = req.body;
+  // Callers painting book pages rely on the existing portrait_4_3 default (matches the
+  // book's page trim). Cover generation is a square trim, so Publishing.jsx passes
+  // imageSize: "square_hd" explicitly — without this, covers were generated as 4:3
+  // portraits and then force-cropped into a square box client-side, slicing off whatever
+  // the model painted near the top/bottom edges (including any text it ignored
+  // instructions and baked in).
+  const size = imageSize || "portrait_4_3";
   if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
   const falKey = process.env.FAL_API_KEY;
@@ -74,7 +81,7 @@ export default async function handler(req, res) {
       ? {
           prompt,
           loras: [{ path: loraUrl, scale: loraScale != null ? Number(loraScale) : 1 }],
-          image_size: "portrait_4_3",
+          image_size: size,
           num_inference_steps: 28,
           guidance_scale: 3.5,
           num_images: 1,
@@ -95,7 +102,7 @@ export default async function handler(req, res) {
         }
       : {
           prompt,
-          image_size: "portrait_4_3",
+          image_size: size,
           num_inference_steps: 28,
           guidance_scale: 3.5,
           num_images: 1,
