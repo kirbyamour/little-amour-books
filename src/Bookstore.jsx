@@ -22,6 +22,17 @@ const P = {
 // constant directly.
 export const coverImageMap = {};
 
+// Every public age-range display (book tiles, shop cards, book detail page) used to read
+// book.age straight off the static placeholder BOOKS/PLACEHOLDER_BOOKS array — a hardcoded
+// string that has zero connection to the "Age Range" field an author actually edits in
+// Publishing's Cover Builder. Changing it there (e.g. to "Ages 3-10") silently did nothing
+// on the live site because nothing ever read it. coverImageMap already carries the real
+// ageRange (see App.jsx's cover-fetch effect), so this just prefers that when it exists.
+export function displayAge(book) {
+  const real = coverImageMap[book.id]?.ageRange;
+  return real || book.age;
+}
+
 // Mirrors Publishing.jsx's CoverBuilder preview (and the print PDF export) exactly, on
 // purpose. The raw cover image alone is NEVER the finished cover: the AI-art prompt
 // forbids the model from painting any typography, and an uploaded photo is only resized,
@@ -482,7 +493,7 @@ function BookCard({ book, go }) {
           <span className="bs-theme-badge">{book.themeBadge}</span>
         )}
         <h3 className="bs-card-title">{book.title}</h3>
-        <p className="bs-card-by">by {book.authorName} · {book.age}</p>
+        <p className="bs-card-by">by {book.authorName} · {displayAge(book)}</p>
         <p className="bs-card-tagline">{book.tagline}</p>
         <div className="bs-card-footer">
           <span className="bs-price">
@@ -1032,7 +1043,7 @@ export function PackPage({ packId, go, books, addToCart }) {
                     <span className="bs-theme-badge" style={{ marginBottom: 6 }}>{book.themeBadge}</span>
                   )}
                   <h3 className="bs-inside-title">{book.title}</h3>
-                  <p className="bs-inside-by">by {book.authorName} · {book.age}</p>
+                  <p className="bs-inside-by">by {book.authorName} · {displayAge(book)}</p>
                   <p className="bs-inside-tagline">{book.tagline}</p>
                   <p className="bs-inside-more">Read more →</p>
                 </div>

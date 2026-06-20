@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
-import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap } from "./Bookstore";
+import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap, displayAge } from "./Bookstore";
 import { supabase } from "./supabaseClient";
 import {
   TermsOfSalePage, RefundPolicyPage, DigitalLicensePage, ShippingPolicyPage,
@@ -299,9 +299,14 @@ function Cover({ book, large }) {
     // own preview, and in MiniCover's shop-grid thumbnails) would just duplicate that text
     // and black out most of the actual artwork for no reason here. Show the full image.
     return (
-      <div className={"cover" + (large ? " cover-lg" : "")} style={{ padding: 0 }} aria-label={"Cover of " + book.title}>
+      <div className={"cover" + (large ? " cover-lg" : "")} style={{ padding: 0, background: "#EFE6D8" }} aria-label={"Cover of " + book.title}>
         {book.status === "coming" ? <span className="ribbon">Coming soon</span> : null}
-        <img src={realCover.url} alt={"Cover of " + book.title} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "inherit" }} />
+        {/* object-fit: contain — never crops. Real cover images come in whatever shape
+            the author uploaded or generated (square AI art, 2:3 portrait scans, etc.), and
+            "cover" was slicing a third or more off the top/bottom of anything non-square
+            to force it into this square frame. contain always shows the whole image,
+            letterboxed if its shape doesn't match the frame, rather than cutting it. */}
+        <img src={realCover.url} alt={"Cover of " + book.title} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", borderRadius: "inherit" }} />
       </div>
     );
   }
@@ -479,7 +484,7 @@ function HomePage({ go }) {
                   <Cover book={b} />
                   <div className="tile-meta">
                     <h3>{b.title}</h3>
-                    <p className="tile-by">by {b.authorName} · {b.age}</p>
+                    <p className="tile-by">by {b.authorName} · {displayAge(b)}</p>
                     <p className="tile-line">{b.tagline}</p>
                   </div>
                 </button>
@@ -562,7 +567,7 @@ function BooksPage({ go }) {
               <Cover book={b} />
               <div className="tile-meta">
                 <h3>{b.title}</h3>
-                <p className="tile-by">by {b.authorName} · {b.age}</p>
+                <p className="tile-by">by {b.authorName} · {displayAge(b)}</p>
                 <div className="mini-two">
                   <p><strong>Grown-up:</strong> {b.adult.split(".")[0]}.</p>
                   <p><strong>Child:</strong> {b.child.split(".")[0]}.</p>
@@ -589,7 +594,7 @@ function BookPage({ book, go, toast, addToCart }) {
           <div className="bd-right">
             <h2>{book.title}</h2>
             <p className="tile-by big">
-              by <button className="link" onClick={() => go("author", author.id)}>{book.authorName}</button> · {book.age}
+              by <button className="link" onClick={() => go("author", author.id)}>{book.authorName}</button> · {displayAge(book)}
             </p>
             <p className="lead">{book.tagline}</p>
             <p className="motto small-motto">Real-life issue. Child-safe story.</p>
@@ -925,7 +930,7 @@ function AuthorPage({ author, go, toast }) {
               {books.map((b) => (
                 <button key={b.id} className="book-tile" onClick={() => go("book", b.id)}>
                   <Cover book={b} />
-                  <div className="tile-meta"><h3>{b.title}</h3><p className="tile-by">{b.age} · {b.status === "coming" ? "Coming soon" : "$" + b.price.toFixed(2)}</p></div>
+                  <div className="tile-meta"><h3>{b.title}</h3><p className="tile-by">{displayAge(b)} · {b.status === "coming" ? "Coming soon" : "$" + b.price.toFixed(2)}</p></div>
                 </button>
               ))}
             </div>
