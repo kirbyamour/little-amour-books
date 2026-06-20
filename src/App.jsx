@@ -3478,6 +3478,13 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   const setPage = (id, patch) => setBook((b) => ({ ...b, pages: b.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   const addPage = () => setBook((b) => ({ ...b, pages: [...b.pages, { id: newId(), text: "", img: "" }] }));
   const removePage = (id) => setBook((b) => ({ ...b, pages: b.pages.filter((p) => p.id !== id) }));
+  // Dedication/Copyright/About Author/About Little Amour Books are real pages too — they
+  // print at the front or back of every book, but until now the only way to touch them was
+  // a separate set of static form fields buried in Publishing, with no Amora chat at all.
+  // This reads/writes the exact same book.publishing.<key> records Publishing's own builders
+  // use (see DedicationBuilder etc. in Publishing.jsx) so edits made here or there are the
+  // same data, never a fork of it.
+  const setMatter = (key, patch) => setBook((b) => ({ ...b, publishing: { ...b.publishing, [key]: { ...(b.publishing?.[key]), ...patch } } }));
 
   // Lets an author drop in their own finished art for a page instead of painting with Amora —
   // e.g. Kirby finishing "Mama Has Papers Today" with her own illustrations for pages the AI
@@ -3743,6 +3750,38 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                 </div>
               ))}
               <button className="btn-line dark" onClick={addPage}>+ Add a blank page</button>
+
+              <div style={{ margin: "26px 0 14px" }}>
+                <p className="fine" style={{ margin: 0, fontWeight: 700 }}>Other pages</p>
+                <p className="fine" style={{ marginTop: 2 }}>
+                  Dedication, copyright, and the about pages print with your book too — write
+                  them here or ask Amora for help, same as any story page. Fine print like
+                  ISBN, alignment, and tone presets still live in Publishing → that page's tab.
+                </p>
+              </div>
+              {MATTER_PAGES.map((mp) => {
+                const d = book.publishing?.[mp.key] || {};
+                const text = d[mp.field] || "";
+                const skip = mp.skippable && !!d.skipped;
+                return (
+                  <div key={mp.key} className="ed-page">
+                    <div className="ed-page-head"><span>{mp.label}</span></div>
+                    {mp.skippable ? (
+                      <label className="fine" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, cursor: "pointer" }}>
+                        <input type="checkbox" checked={skip} onChange={(e) => setMatter(mp.key, { skipped: e.target.checked })} />
+                        Skip this page
+                      </label>
+                    ) : null}
+                    {!skip ? (
+                      <>
+                        <textarea rows={mp.rows} value={text} onChange={(e) => setMatter(mp.key, { [mp.field]: e.target.value })} placeholder={mp.placeholder} />
+                        <MatterChat label={mp.chatLabel} intro={mp.intro} book={book} currentText={text}
+                          onApply={(t) => setMatter(mp.key, { [mp.field]: t })} />
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
             <div>
               <h3 className="bd-h" style={{ marginTop: 0 }}>Make it make sense</h3>
@@ -3887,6 +3926,70 @@ function PageChat({ book, page, onApply, onGenerateImage }) {
       </div>
       <div className="pc-bar">
         <textarea rows={1} placeholder="Ask Amora about this page…" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
+        <button className="btn-gold" disabled={busy || !input.trim()} onClick={send}>Send</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Front/back-matter "pages" (Dedication, Copyright, About) ----------------
+   These live at book.publishing.<key>, the exact same record Publishing's own dedicated
+   builders (DedicationBuilder, CopyrightBuilder, AboutAuthorBuilder, AboutLABBuilder) read
+   and write — this is just a second, chat-enabled door onto the same data, not a fork of it. */
+const MATTER_PAGES = [
+  { key: "dedication", field: "text", label: "\ud83d\udc8c Dedication", chatLabel: "Dedication",
+    skippable: true, rows: 3, placeholder: "For\u2026",
+    intro: "Want help with the dedication? One true sentence is plenty \u2014 tell me who it's for, or ask me to draft one." },
+  { key: "aboutAuthor", field: "bio", label: "\ud83d\udc64 About the Author", chatLabel: "About the Author",
+    skippable: true, rows: 4, placeholder: "Generate with a tone in Publishing \u2192 About Author, or write your own here.",
+    intro: "I can draft or polish your author bio \u2014 tell me the tone (warm, playful, professional\u2026) or what you want it to say." },
+  { key: "aboutLAB", field: "copy", label: "\ud83c\udf19 About Little Amour Books", chatLabel: "About Little Amour Books",
+    skippable: false, rows: 4, placeholder: "Default publisher description \u2014 edit freely.",
+    intro: "This is the publisher page that appears in every book \u2014 the default is ready to go, but I can help personalize the closing note if you'd like." },
+  { key: "copyright", field: "rights", label: "\u00a9 Copyright", chatLabel: "Copyright",
+    skippable: false, rows: 4, placeholder: "Rights statement \u2014 a professional default is set in Publishing \u2192 Copyright.",
+    intro: "This is the legal rights statement \u2014 I can help reword it, but keep in mind it should stay clear and professional." },
+];
+
+function MatterChat({ label, intro, book, currentText, onApply }) {
+  const [msgs, setMsgs] = useState([{ role: "amora", text: intro }]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const scroller = useRef(null);
+  useEffect(() => { if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight; }, [msgs, busy]);
+
+  const send = async () => {
+    const text = input.trim(); if (!text || busy) return;
+    setMsgs((m) => [...m, { role: "user", text }]); setInput(""); setBusy(true);
+    try {
+      const reply = await amora(
+        `This is the "${label}" page of a children's picture book titled "${book.title || "Untitled"}". This page has no illustration -- it's text only, so you have no way to generate or place an image here, only words.\n\nThe current text is:\n"${currentText || "(empty)"}"\n\nKirby says: "${text}"\n\nHelp with JUST this page's words. If you're suggesting new text, put the exact suggested text on its own final line prefixed with PAGE: -- length appropriate for this kind of page (a dedication is one short sentence; a bio or publisher note is a few sentences; never sprawl). Otherwise just answer warmly. Keep it short.`,
+        AMORA_SYS
+      );
+      const m = reply.match(/PAGE:\s*([\s\S]+)$/);
+      if (m) { setDraft(m[1].trim().replace(/^"|"$/g, "")); setMsgs((x) => [...x, { role: "amora", text: reply.replace(/PAGE:[\s\S]+$/, "").trim() || "Here's a version to consider:" }]); }
+      else setMsgs((x) => [...x, { role: "amora", text: reply }]);
+    } catch (e) { setMsgs((x) => [...x, { role: "amora", text: "I slipped just now -- try once more?" }]); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="pagechat-inline">
+      <div className="pc-head"><span><MoonMark size={14} color="#FFF9F0" /> Amora \u00b7 {label}</span></div>
+      <div className="pc-scroll pc-scroll-inline" ref={scroller}>
+        {msgs.map((m, i) => <div key={i} className={"abubble " + m.role}>{m.text.split("\n").map((l, j) => l ? <p key={j}>{l}</p> : null)}</div>)}
+        {busy ? <div className="abubble amora"><p className="typing">thinking<i>.</i><i>.</i><i>.</i></p></div> : null}
+        {draft ? (
+          <div className="pc-draft">
+            <p className="pc-draft-label">Suggested text</p>
+            <p>{draft}</p>
+            <button className="btn-gold" onClick={() => { onApply(draft); setDraft(null); setMsgs((x) => [...x, { role: "amora", text: "Done -- I've placed it on the page. You can keep editing anytime." }]); }}>Use this</button>
+          </div>
+        ) : null}
+      </div>
+      <div className="pc-bar">
+        <textarea rows={1} placeholder={`Ask Amora about the ${label.toLowerCase()}\u2026`} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
         <button className="btn-gold" disabled={busy || !input.trim()} onClick={send}>Send</button>
       </div>
     </div>
