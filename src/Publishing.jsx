@@ -942,6 +942,20 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       addLog("  Interior print-ready PDF…");
       const iPDF = await makeBookPDF(true);
       print.file("Interior_Print_Ready.pdf", iPDF.output("arraybuffer"));
+      // Computed once here (right after the page count is actually known) and reused
+      // everywhere downstream that needs it — the cover spread's spine math and the
+      // metadata sheet both depend on this being the real count, not the author's
+      // earlier guess.
+      const realPageCount = iPDF.internal.getNumberOfPages();
+      // KDP's own spine-width formula (~0.0025in per page on standard white/cream
+      // paper for an 8.5x8.5 picture book). Below about 0.0625in (roughly 24-25 pages
+      // at this rate) the spine is too thin for KDP to print legible text on safely —
+      // most picture books (24-32 pages) fall well under that line, which is exactly
+      // why there's no dedicated "spine text" field in the builder: for the vast
+      // majority of these books, asking for spine text would be asking for something
+      // that can't actually print. Longer books still get an accurate estimate here.
+      const estSpineIn = realPageCount * 0.0025;
+      const spineTextFits = estSpineIn >= 0.0625;
 
       addLog("  Cover print files…");
       const cv = pub.cover || {};
@@ -954,20 +968,26 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       // so nobody mistakes this for a finished print-ready spread.
       const hasFrontArt = !!(cv.coverImageUrl && cv.coverImageUrl.startsWith("data:"));
       const hasBackArt = !!(bc.backCoverImageUrl && bc.backCoverImageUrl.startsWith("data:"));
+      // Real estimate instead of an arbitrary fixed width — at typical picture-book
+      // length the true spine is under a millimetre, nowhere near wide enough to
+      // safely print text, so the box is drawn at (roughly) the width it will actually
+      // be rather than a guess that implies more room than there is.
+      const spineMm = Math.max(1.2, estSpineIn * 25.4);
       const makeCoverSpread = (withBarcode) => {
-        const spineW = 6; // mm — placeholder; real spine width is printer-calculated from final page count + paper stock at submission
+        const spineW = spineMm;
         const panelW = 215.9, panelH = 215.9;
         const totalW = panelW * 2 + spineW;
         const doc = new jsPDF({ unit: "mm", format: [totalW, panelH] });
         doc.setFillColor(250, 244, 235); doc.rect(0, 0, totalW, panelH, "F");
         doc.setFillColor(255, 224, 102); doc.rect(0, 0, totalW, 11, "F");
         doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(40, 30, 10);
-        // Banner only calls out what's actually still placeholder — spine is never real
-        // (we have no spine-width input), front/back call out their own state.
+        // Banner only calls out what's actually still placeholder — spine width here is
+        // a real estimate from the real page count, not a guess that implies more room
+        // than there is.
         const bannerBits = [
           hasFrontArt ? "front cover art is final" : "front cover is a placeholder",
           hasBackArt ? "back cover art is final" : "back cover is a placeholder",
-          "spine width is NOT final - printer-calculated at submission",
+          spineTextFits ? "spine width is an estimate - exact width is printer-calculated at submission" : `spine is too thin for text at ${realPageCount} pages (est. ${estSpineIn.toFixed(3)}in) - leave it blank`,
         ];
         doc.text(`PLACEHOLDER SPREAD - ${bannerBits.join("; ")}.`, totalW / 2, 7, { align: "center", maxWidth: totalW - 10 });
 
@@ -1001,10 +1021,16 @@ function ExportCenter({ pub, setPub, book, author, done }) {
           doc.text(cleanText(`ISBN: ${pub.copyright?.isbn || bc.isbn || "TBD"}`), panelW - 28.5, panelH - 19, { align: "center" });
         }
 
-        // Spine — always placeholder; nothing upstream collects real spine art or width
+        // Spine — width is a real estimate; text is only suggested once the estimate
+        // says it'd actually be legible. Most picture books (24-32 pages) land well
+        // under that line, which is why this isn't a separate input anywhere upstream —
+        // a spine-text field would be offering something that can't print for almost
+        // every book that comes through here.
         doc.setFillColor(235, 226, 240); doc.rect(panelW, 13, spineW, panelH - 15, "F");
-        doc.setFont("helvetica", "normal"); doc.setFontSize(6); doc.setTextColor(80, 70, 90);
-        doc.text("SPINE - placeholder width", panelW + spineW / 2, panelH / 2, { align: "center", angle: 90 });
+        if (spineTextFits) {
+          doc.setFont("helvetica", "normal"); doc.setFontSize(6); doc.setTextColor(80, 70, 90);
+          doc.text(cleanText(cv.title || book.title || ""), panelW + spineW / 2, panelH / 2, { align: "center", angle: 90, maxWidth: panelH - 30 });
+        }
 
         // Front panel — real cover art if we have it, otherwise an honest placeholder box
         const fx = panelW + spineW;
@@ -1039,10 +1065,8 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       addLog("Building metadata files…");
       const meta = root.folder("Metadata");
       const mObj = metaObj();
-      // The author-entered page count is a guess made before the book was finished.
-      // The interior PDF that just got built is the actual truth — use that instead of
-      // letting a stale manual number ship in the metadata sheet.
-      const realPageCount = iPDF.internal.getNumberOfPages();
+      // realPageCount was computed right after the interior PDF was built, above —
+      // the author-entered page count is just a pre-export guess; this is the truth.
       if (pub.metadata?.pageCount && String(pub.metadata.pageCount) !== String(realPageCount)) {
         findings.push({ level: "info", area: "Metadata", message: `Page count auto-corrected to ${realPageCount} (counted from the actual interior PDF) — the entered value was ${pub.metadata.pageCount}.` });
       }
