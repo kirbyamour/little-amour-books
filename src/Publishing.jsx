@@ -289,7 +289,26 @@ function BackCoverBuilder({ pub, setPub, book, done }) {
   const s = (k, v) => setPub(p => ({ ...p, backCover: { ...p.backCover, [k]: v } }));
   const [saved, setSaved] = useState(false);
   const [gen, setGen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const fileInput = useRef(null);
   const save = () => { setSaved(true); done("backcover"); setTimeout(() => setSaved(false), 2000); };
+
+  // Same pattern as the Front Cover Builder's upload: resize client-side, store as a
+  // data URI so the exported PDF (jsPDF addImage) has real bytes to embed, not just a
+  // remote URL that could 404 or get CORS-blocked at export time.
+  const uploadBackCover = async (file) => {
+    if (!file || !file.type || !file.type.startsWith("image/")) {
+      setErr("That doesn't look like an image file — try a JPG or PNG.");
+      return;
+    }
+    setErr(""); setBusy(true);
+    try {
+      const dataUrl = await resizeImageFile(file);
+      if (!dataUrl) { setErr("Couldn't read that image — try a smaller file or a different format."); return; }
+      s("backCoverImageUrl", dataUrl);
+    } finally { setBusy(false); }
+  };
 
   const generate = async (tone) => {
     setGen(true);
@@ -310,7 +329,26 @@ No headers, no bullets, flowing warm prose. End with the age range.`, 280);
     <div>
       <h3 style={{ color: C.cream, fontFamily: "Georgia,serif", marginBottom: 4 }}>Back Cover Builder</h3>
       <p style={{ color: C.muted, fontSize: 14, marginBottom: 22 }}>The back sells the book. One warm paragraph beats a list every time.</p>
-      <Field label="Back Cover Blurb" note="3–4 sentences. Amora can draft this from your story.">
+      <Field label="Finished Back Cover Image (optional)" note="Already have a finished back cover — designed elsewhere, hand-lettered, or otherwise complete? Upload it here and it's used as-is in your export's cover spread instead of the text fields below.">
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => fileInput.current && fileInput.current.click()} disabled={busy} style={{ ...btn(), opacity: busy ? 0.6 : 1 }}>
+            {busy ? "working…" : d.backCoverImageUrl ? "Replace with my own image" : "Upload finished back cover"}
+          </button>
+          {d.backCoverImageUrl && (
+            <button onClick={() => s("backCoverImageUrl", "")} disabled={busy} style={btn("ghost")}>Remove image</button>
+          )}
+          <input type="file" accept="image/*" style={{ display: "none" }}
+            ref={(el) => { fileInput.current = el; }}
+            onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) uploadBackCover(f); }} />
+        </div>
+        {err && <p style={{ color: C.gold, fontSize: 12, marginTop: 8 }}>{err}</p>}
+        {d.backCoverImageUrl && (
+          <div style={{ width: "100%", maxWidth: 280, aspectRatio: "1 / 1", borderRadius: 8, marginTop: 8, overflow: "hidden", background: "#140f28" }}>
+            <img src={d.backCoverImageUrl} alt="Back cover" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} onError={() => {}} />
+          </div>
+        )}
+      </Field>
+      <Field label="Back Cover Blurb" note={d.backCoverImageUrl ? "Not used in the export while a finished back cover image is uploaded above — kept here for your records." : "3–4 sentences. Amora can draft this from your story."}>
         <TI value={d.blurb || ""} onChange={v => s("blurb", v)} multi rows={5} placeholder="Generate below, or write your own…" />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
           <ABtn label="Generate Blurb" onClick={() => generate("warm")} loading={gen} />
@@ -855,6 +893,12 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       }
       addLog("Checking image resolution…");
       await checkImageDPI(pub.cover?.coverImageUrl, "Cover image", 8.5, findings);
+      // Unlike the front cover, a missing back cover image is a normal, supported
+      // state (text blurb instead) — only run the check, and only then risk a finding,
+      // when the author actually uploaded one.
+      if (pub.backCover?.backCoverImageUrl && pub.backCover.backCoverImageUrl.startsWith("data:")) {
+        await checkImageDPI(pub.backCover.backCoverImageUrl, "Back cover image", 8.5, findings);
+      }
       for (let i = 0; i < pgs0.length; i++) await checkImageDPI(pgs0[i].img, `Page ${i + 1} image`, 8.5, findings);
 
       addLog("Building customer digital files…");
@@ -908,6 +952,8 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       // author has one) goes in the front panel at true size, and the spine/back —
       // which we have no real art for — are explicitly banner-labeled as placeholder
       // so nobody mistakes this for a finished print-ready spread.
+      const hasFrontArt = !!(cv.coverImageUrl && cv.coverImageUrl.startsWith("data:"));
+      const hasBackArt = !!(bc.backCoverImageUrl && bc.backCoverImageUrl.startsWith("data:"));
       const makeCoverSpread = (withBarcode) => {
         const spineW = 6; // mm — placeholder; real spine width is printer-calculated from final page count + paper stock at submission
         const panelW = 215.9, panelH = 215.9;
@@ -916,35 +962,53 @@ function ExportCenter({ pub, setPub, book, author, done }) {
         doc.setFillColor(250, 244, 235); doc.rect(0, 0, totalW, panelH, "F");
         doc.setFillColor(255, 224, 102); doc.rect(0, 0, totalW, 11, "F");
         doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(40, 30, 10);
-        doc.text("PLACEHOLDER SPREAD - front cover art is final; spine and back cover below are NOT final and must be completed before print submission.",
-          totalW / 2, 7, { align: "center", maxWidth: totalW - 10 });
+        // Banner only calls out what's actually still placeholder — spine is never real
+        // (we have no spine-width input), front/back call out their own state.
+        const bannerBits = [
+          hasFrontArt ? "front cover art is final" : "front cover is a placeholder",
+          hasBackArt ? "back cover art is final" : "back cover is a placeholder",
+          "spine width is NOT final - printer-calculated at submission",
+        ];
+        doc.text(`PLACEHOLDER SPREAD - ${bannerBits.join("; ")}.`, totalW / 2, 7, { align: "center", maxWidth: totalW - 10 });
 
-        // Back panel
-        doc.setDrawColor(180, 170, 190);
-        doc.rect(2, 13, panelW - 4, panelH - 15);
-        doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
-        doc.text("BACK COVER - placeholder", panelW / 2, panelH / 2 - 14, { align: "center" });
-        doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-        doc.text(cleanText(`Title: ${cv.title || book.title || ""}`), panelW / 2, panelH / 2 - 2, { align: "center" });
-        if (bc.blurb) {
-          const bl = doc.splitTextToSize(cleanText(bc.blurb), panelW - 30);
-          doc.text(bl, panelW / 2, panelH / 2 + 10, { align: "center" });
+        // Back panel — real back cover art if the author uploaded one, otherwise the
+        // text-based placeholder built from the Back Cover Builder fields.
+        if (hasBackArt) {
+          try {
+            const fmt = bc.backCoverImageUrl.includes("png") ? "PNG" : "JPEG";
+            doc.addImage(bc.backCoverImageUrl, fmt, 0, 13, panelW, panelH - 15);
+          } catch (e) {
+            doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
+            doc.text("BACK COVER - image unavailable", panelW / 2, panelH / 2, { align: "center" });
+          }
+        } else {
+          doc.setDrawColor(180, 170, 190);
+          doc.rect(2, 13, panelW - 4, panelH - 15);
+          doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
+          doc.text("BACK COVER - placeholder", panelW / 2, panelH / 2 - 14, { align: "center" });
+          doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+          doc.text(cleanText(`Title: ${cv.title || book.title || ""}`), panelW / 2, panelH / 2 - 2, { align: "center" });
+          if (bc.blurb) {
+            const bl = doc.splitTextToSize(cleanText(bc.blurb), panelW - 30);
+            doc.text(bl, panelW / 2, panelH / 2 + 10, { align: "center" });
+          }
         }
         if (withBarcode) {
-          doc.setDrawColor(80, 70, 90); doc.rect(panelW - 47, panelH - 35, 37, 22);
-          doc.setFontSize(7);
+          doc.setDrawColor(80, 70, 90); doc.setFillColor(250, 244, 235);
+          doc.rect(panelW - 47, panelH - 35, 37, 22, hasBackArt ? "FD" : "S");
+          doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(80, 70, 90);
           doc.text("BARCODE AREA RESERVED", panelW - 28.5, panelH - 23, { align: "center" });
           doc.text(cleanText(`ISBN: ${pub.copyright?.isbn || bc.isbn || "TBD"}`), panelW - 28.5, panelH - 19, { align: "center" });
         }
 
-        // Spine
+        // Spine — always placeholder; nothing upstream collects real spine art or width
         doc.setFillColor(235, 226, 240); doc.rect(panelW, 13, spineW, panelH - 15, "F");
         doc.setFont("helvetica", "normal"); doc.setFontSize(6); doc.setTextColor(80, 70, 90);
         doc.text("SPINE - placeholder width", panelW + spineW / 2, panelH / 2, { align: "center", angle: 90 });
 
         // Front panel — real cover art if we have it, otherwise an honest placeholder box
         const fx = panelW + spineW;
-        if (cv.coverImageUrl && cv.coverImageUrl.startsWith("data:")) {
+        if (hasFrontArt) {
           try {
             const fmt = cv.coverImageUrl.includes("png") ? "PNG" : "JPEG";
             doc.addImage(cv.coverImageUrl, fmt, fx, 13, panelW, panelH - 15);
@@ -964,10 +1028,12 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       print.file("Full_Cover_With_Barcode.pdf", cwb.output("arraybuffer"));
       const cnb = makeCoverSpread(false);
       print.file("Full_Cover_No_Barcode.pdf", cnb.output("arraybuffer"));
-      if (cv.coverImageUrl && cv.coverImageUrl.startsWith("data:")) {
-        findings.push({ level: "info", area: "Cover spread", message: "Front panel uses your real cover art; spine and back panel are still placeholders and must be finished before print submission." });
+      if (hasFrontArt && hasBackArt) {
+        findings.push({ level: "info", area: "Cover spread", message: "Front and back panels both use your real cover art; spine width is still printer-calculated placeholder and must be finalized before print submission." });
+      } else if (hasFrontArt || hasBackArt) {
+        findings.push({ level: "info", area: "Cover spread", message: `${hasFrontArt ? "Front" : "Back"} panel uses your real cover art; the ${hasFrontArt ? "back panel and spine" : "front panel and spine"} are still placeholders and must be finished before print submission.` });
       } else {
-        findings.push({ level: "warn", area: "Cover spread", message: "No cover art uploaded — the full cover spread files are placeholders only, not print-ready." });
+        findings.push({ level: "warn", area: "Cover spread", message: "No cover art uploaded for front or back — the full cover spread files are placeholders only, not print-ready." });
       }
 
       addLog("Building metadata files…");
@@ -1007,6 +1073,10 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       if (cv.coverImageUrl && cv.coverImageUrl.startsWith("data:")) {
         const cext = cv.coverImageUrl.includes("png") ? "png" : "jpg";
         imgs.file(`cover.${cext}`, cv.coverImageUrl.split(",")[1], { base64: true });
+      }
+      if (pub.backCover?.backCoverImageUrl && pub.backCover.backCoverImageUrl.startsWith("data:")) {
+        const bext = pub.backCover.backCoverImageUrl.includes("png") ? "png" : "jpg";
+        imgs.file(`back_cover.${bext}`, pub.backCover.backCoverImageUrl.split(",")[1], { base64: true });
       }
       (book.pages || []).forEach((p, i) => {
         if (p.img?.startsWith("data:")) {
