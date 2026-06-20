@@ -235,7 +235,24 @@ function CoverBuilder({ pub, setPub, book, collection, done }) {
                 onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) uploadCover(f); }} />
             </div>
             {err && <p style={{ color: C.gold, fontSize: 12, marginTop: 8 }}>{err}</p>}
-            {d.coverImageUrl && <img src={d.coverImageUrl} alt="Cover" style={{ width: "100%", borderRadius: 8, marginTop: 8, maxHeight: 180, objectFit: "cover" }} onError={() => {}} />}
+            {d.coverImageUrl && (
+              // True WYSIWYG preview — mirrors makeBookPDF's cover layout exactly (same
+              // relative text positions, same two scrim bands) so what's seen here is what
+              // prints. Before this, the box below only ever showed the bare illustration;
+              // title/subtitle/author/series/age-range/publisher were invisible until the
+              // PDF was exported, even though every one of those fields is filled in above.
+              <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", borderRadius: 8, marginTop: 8, overflow: "hidden", background: "#140f28" }}>
+                <img src={d.coverImageUrl} alt="Cover" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={() => {}} />
+                <div style={{ position: "absolute", left: 0, right: 0, top: "27%", height: "42%", background: "rgba(10,8,22,0.42)" }} />
+                <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 34 / 215.9 * 100 + "%", background: "rgba(10,8,22,0.42)" }} />
+                {d.series && <div style={{ position: "absolute", left: 0, right: 0, top: "30%", textAlign: "center", color: "#c4a8d1", fontWeight: 700, fontSize: "5%", letterSpacing: 1 }}>{d.series.toUpperCase()}</div>}
+                <div style={{ position: "absolute", left: "8%", right: "8%", top: "38%", textAlign: "center", color: C.cream, fontWeight: 700, fontSize: "9%", fontFamily: "Georgia,serif", lineHeight: 1.15 }}>{d.title || book.title || "Untitled"}</div>
+                {d.subtitle && <div style={{ position: "absolute", left: "10%", right: "10%", top: "48%", textAlign: "center", color: "#e1d6e8", fontStyle: "italic", fontSize: "5.5%" }}>{d.subtitle}</div>}
+                {d.authorName && <div style={{ position: "absolute", left: 0, right: 0, top: "56%", textAlign: "center", color: C.cream, fontSize: "6%" }}>{d.authorName}</div>}
+                {d.showAgeBadge !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "16%", textAlign: "center", color: "#c4a8d1", fontSize: "4%", letterSpacing: 0.5 }}>{(d.ageRange || "Ages 3–6").toUpperCase()}</div>}
+                {d.showLogo !== false && <div style={{ position: "absolute", left: 0, right: 0, bottom: "5%", textAlign: "center", color: C.mauve, fontSize: "4.5%" }}>Little Amour Books</div>}
+              </div>
+            )}
             <details style={{ marginTop: 10 }}>
               <summary style={{ color: C.muted, fontSize: 12, cursor: "pointer" }}>Paste a URL instead</summary>
               <p style={{ color: C.muted, fontSize: 11, margin: "6px 0" }}>Pasted URLs may not embed correctly in the exported PDF — prefer the buttons above when possible.</p>
@@ -561,21 +578,40 @@ function ExportCenter({ pub, setPub, book, author, done }) {
         coverImageDrawn = true;
       } catch (e) { /* image unavailable — solid background already drawn, keep going */ }
     }
-    // A dark scrim band behind the title keeps it legible over a busy illustration —
-    // only needed when there's an actual image underneath the text.
+    // Dark scrim bands behind every text region keep it legible over a busy
+    // illustration — only needed when there's an actual image underneath the text.
+    // Two bands (hero block + footer block) rather than one tall one, so the bulk of
+    // the illustration in between stays visible instead of being half-blacked-out.
     if (coverImageDrawn) {
       try {
         doc.saveGraphicsState();
-        if (doc.GState) doc.setGState(new doc.GState({ opacity: 0.4 }));
+        if (doc.GState) doc.setGState(new doc.GState({ opacity: 0.42 }));
         doc.setFillColor(10, 8, 22);
-        doc.rect(0, H * 0.30, W, H * 0.34, "F");
+        doc.rect(0, H * 0.27, W, H * 0.42, "F"); // series + title + subtitle + author
+        doc.rect(0, H - 34, W, 34, "F"); // age badge + publisher logo footer
         doc.restoreGraphicsState();
       } catch (e) { /* opacity API unavailable on this jsPDF build — skip the scrim, text still renders */ }
     }
+    // Every field the author actually filled in on the Front Cover Builder gets drawn
+    // here — title, series, subtitle, author, age range, publisher. Previously only
+    // title/author/logo made it onto the cover even though the builder collected all
+    // six; subtitle/series/age-range were captured and then silently dropped.
+    if (cover.series) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(196, 168, 209);
+      doc.text(cover.series.toUpperCase(), W / 2, H * 0.32, { align: "center" });
+    }
     doc.setFont("helvetica", "bold"); doc.setFontSize(22); doc.setTextColor(250, 244, 235);
     doc.text(cover.title || book.title || "Untitled", W / 2, H * 0.42, { align: "center", maxWidth: W - 36 });
-    if (cover.authorName) { doc.setFont("helvetica", "normal"); doc.setFontSize(14); doc.text(cover.authorName, W / 2, H * 0.56, { align: "center" }); }
-    if (cover.showLogo !== false) { doc.setFontSize(10); doc.setTextColor(155, 126, 184); doc.text("Little Amour Books", W / 2, H - 18, { align: "center" }); }
+    if (cover.subtitle) {
+      doc.setFont("helvetica", "italic"); doc.setFontSize(12); doc.setTextColor(225, 214, 232);
+      doc.text(cover.subtitle, W / 2, H * 0.50, { align: "center", maxWidth: W - 44 });
+    }
+    if (cover.authorName) { doc.setFont("helvetica", "normal"); doc.setFontSize(14); doc.setTextColor(250, 244, 235); doc.text(cover.authorName, W / 2, H * 0.58, { align: "center" }); }
+    if (cover.showAgeBadge !== false) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(196, 168, 209);
+      doc.text((cover.ageRange || "Ages 3–6").toUpperCase(), W / 2, H - 26, { align: "center" });
+    }
+    if (cover.showLogo !== false) { doc.setFontSize(10); doc.setTextColor(155, 126, 184); doc.text("Little Amour Books", W / 2, H - 14, { align: "center" }); }
 
     // Copyright page
     doc.addPage([W, H]);
