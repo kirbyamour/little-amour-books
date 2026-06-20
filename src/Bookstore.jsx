@@ -46,6 +46,16 @@ export function displayAge(book) {
 export function ComposedCover({ cover, fallbackTitle, fallbackAuthor, tiny }) {
   if (!cover || !cover.url) return null;
   const alt = "Cover of " + (cover.title || fallbackTitle || "book");
+  // finishedArt means the image already has the title/author baked into the pixels
+  // (AI-generated with text, or the author's own finished upload) -- in that case this
+  // overlay must NOT draw, or text gets duplicated on top of itself, and the image must
+  // use contain-fit, not cover-fit, or a non-square finished cover gets cropped. This
+  // mirrors App.jsx's own Cover component, which solved the identical problem for the
+  // homepage/book-detail grids; every MiniCover call site already shows title/author as
+  // real text right next to the thumbnail, so dropping the overlay loses no information.
+  if (cover.finishedArt) {
+    return <img src={cover.url} alt={alt} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", borderRadius: tiny ? "inherit" : undefined }} />;
+  }
   if (tiny) {
     return <img src={cover.url} alt={alt} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: "inherit" }} />;
   }

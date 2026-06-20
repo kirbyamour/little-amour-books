@@ -3933,7 +3933,7 @@ export default function App() {
             // Store the whole cover record, not just the image URL — ComposedCover needs
             // title/subtitle/author/series/age-badge/logo to render the same overlay the
             // author approved in Publishing, not just the bare illustration.
-            const next = { url, title: c.title, subtitle: c.subtitle, authorName: c.authorName, series: c.series, ageRange: c.ageRange, showAgeBadge: c.showAgeBadge, showLogo: c.showLogo };
+            const next = { url, title: c.title, subtitle: c.subtitle, authorName: c.authorName, series: c.series, ageRange: c.ageRange, showAgeBadge: c.showAgeBadge, showLogo: c.showLogo, finishedArt: c.finishedArt };
             const prev = coverImageMap[sb.id];
             if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) { coverImageMap[sb.id] = next; changed = true; }
           });

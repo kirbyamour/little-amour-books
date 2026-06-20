@@ -247,7 +247,7 @@ function CoverBuilder({ pub, setPub, book, collection, done }) {
               // title/subtitle/author/series/age-range/publisher were invisible until the
               // PDF was exported, even though every one of those fields is filled in above.
               <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", borderRadius: 8, marginTop: 8, overflow: "hidden", background: "#140f28", containerType: "inline-size" }}>
-                <img src={d.coverImageUrl} alt="Cover" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={() => {}} />
+                <img src={d.coverImageUrl} alt="Cover" style={{ width: "100%", height: "100%", objectFit: d.finishedArt ? "contain" : "cover", display: "block" }} onError={() => {}} />
                 {/* Text/scrim only shown in preview when finishedArt is off — when the
                     cover art already has the title baked in, makeBookPDF skips this whole
                     layer, so the preview has to match or it'd lie about what prints. */}
@@ -632,11 +632,25 @@ function ExportCenter({ pub, setPub, book, author, done }) {
           if (props && props.width && props.height) {
             const srcRatio = props.width / props.height;
             const boxRatio = W / H;
-            // "Cover" fit (like CSS background-size: cover) — fills the whole page with
-            // no letterboxing, cropping whatever overflows. Content drawn outside the
-            // page's bounds simply isn't rendered, so over-sizing and centering is safe.
-            if (srcRatio > boxRatio) { drawH = H; drawW = H * srcRatio; }
-            else { drawW = W; drawH = W / srcRatio; }
+            if (cover.finishedArt) {
+              // This cover already has the title/author baked into the pixels (the
+              // "already has the title on it" toggle below). "Cover" fit would crop
+              // straight through that baked-in text on anything that isn't a perfect
+              // square — exactly what was happening on a real export: the generated
+              // cover came back 1024x1536 (2:3 portrait), not the square it was supposed
+              // to be, and force-cropping it into the square trim sliced the title off
+              // top and bottom. "Contain" fit instead — the whole image inside the page,
+              // centered, background showing on any leftover strip — same fix already
+              // applied to finishedArt story pages, applied here for the same reason.
+              if (srcRatio > boxRatio) { drawW = W; drawH = W / srcRatio; }
+              else { drawH = H; drawW = H * srcRatio; }
+            } else {
+              // No baked-in text on this art — our own text gets drawn on top below, so
+              // filling the full bleed with no letterboxing (cropping whatever overflows)
+              // is the right look here.
+              if (srcRatio > boxRatio) { drawH = H; drawW = H * srcRatio; }
+              else { drawW = W; drawH = W / srcRatio; }
+            }
             drawX = (W - drawW) / 2;
             drawY = (H - drawH) / 2;
           }
@@ -973,6 +987,28 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       // safely print text, so the box is drawn at (roughly) the width it will actually
       // be rather than a guess that implies more room than there is.
       const spineMm = Math.max(1.2, estSpineIn * 25.4);
+      // Shared aspect-preserving placement for the spread's front/back art panels.
+      // These panels previously called doc.addImage with the panel's fixed width/height
+      // and nothing else — a plain stretch with no regard for the source image's real
+      // aspect ratio, distorting (squishing/stretching) any art that wasn't already
+      // exactly panel-shaped. This fits the whole image inside the panel instead,
+      // centered, undistorted, same "contain" reasoning used everywhere else real
+      // finished art gets drawn into a box it might not exactly match.
+      const drawContainFit = (doc, dataUrl, fmt, boxX, boxY, boxW, boxH) => {
+        let dW = boxW, dH = boxH, dX = boxX, dY = boxY;
+        try {
+          const props = doc.getImageProperties(dataUrl);
+          if (props && props.width && props.height) {
+            const srcRatio = props.width / props.height;
+            const boxRatio = boxW / boxH;
+            if (srcRatio > boxRatio) { dW = boxW; dH = boxW / srcRatio; }
+            else { dH = boxH; dW = boxH * srcRatio; }
+            dX = boxX + (boxW - dW) / 2;
+            dY = boxY + (boxH - dH) / 2;
+          }
+        } catch (e) { /* couldn't read dimensions — fall back to filling the box as-is */ }
+        doc.addImage(dataUrl, fmt, dX, dY, dW, dH);
+      };
       const makeCoverSpread = (withBarcode) => {
         const spineW = spineMm;
         const panelW = 215.9, panelH = 215.9;
@@ -996,7 +1032,7 @@ function ExportCenter({ pub, setPub, book, author, done }) {
         if (hasBackArt) {
           try {
             const fmt = bc.backCoverImageUrl.includes("png") ? "PNG" : "JPEG";
-            doc.addImage(bc.backCoverImageUrl, fmt, 0, 13, panelW, panelH - 15);
+            drawContainFit(doc, bc.backCoverImageUrl, fmt, 0, 13, panelW, panelH - 15);
           } catch (e) {
             doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
             doc.text("BACK COVER - image unavailable", panelW / 2, panelH / 2, { align: "center" });
@@ -1037,7 +1073,7 @@ function ExportCenter({ pub, setPub, book, author, done }) {
         if (hasFrontArt) {
           try {
             const fmt = cv.coverImageUrl.includes("png") ? "PNG" : "JPEG";
-            doc.addImage(cv.coverImageUrl, fmt, fx, 13, panelW, panelH - 15);
+            drawContainFit(doc, cv.coverImageUrl, fmt, fx, 13, panelW, panelH - 15);
           } catch (e) {
             doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(80, 70, 90);
             doc.text("FRONT COVER - image unavailable", fx + panelW / 2, panelH / 2, { align: "center" });
