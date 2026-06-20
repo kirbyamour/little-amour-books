@@ -2466,6 +2466,25 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
     setData((d) => ({ ...d, books: d.books.map((b) => b.id === bookId ? { ...b, collectionId: id } : b) }));
   };
 
+  // Until the real Supabase row has loaded, `data` is still the hardcoded KIRBY_SEED
+  // fallback (an old 8-page, image-less draft of "Mama Has Papers Today" used only to
+  // give brand-new accounts something to look at before they have real saved data).
+  // Rendering the studio before `loaded` is true means anyone who opens it on a slow
+  // connection — or a tool inspecting it a beat too early — sees that stale seed and
+  // can mistake it for their real, current book. The autosave effect already guards
+  // against this seed ever overwriting real data (it no-ops until loaded is true), but
+  // nothing previously stopped the UI itself from showing it as if it were live. Gate
+  // the entire studio behind a real loading state so stale seed data is never rendered.
+  if (!loaded) {
+    return (
+      <section className="morning page-top">
+        <div className="wrap" style={{ textAlign: "center", padding: "120px 0" }}>
+          <p className="fine">Loading your studio…</p>
+        </div>
+      </section>
+    );
+  }
+
   /* ---------------- BOOK LIST ---------------- */
   if (view === "list" || !book) {
     const royalties = data.books.reduce((s, b) => s + (b.earnings || 0), 0);
