@@ -604,6 +604,41 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     return doc;
   };
 
+  // Loads a data: URL / http(s) URL into a real <img> element so its pixels are
+  // readable via canvas — needed to stretch a thin slice of an image's own edge
+  // pixels into whatever gap contain-fit leaves around a non-square piece of art.
+  const loadImageEl = (src) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+
+  // Grabs a few-px-tall strip from the very top or bottom edge of the image and
+  // stretches it to (outW x outH) — used to fill a horizontal letterbox gap with
+  // the image's own background color/texture instead of bare page background.
+  const edgeStripH = (img, fromTop, outW = 400, outH = 40) => {
+    const c = document.createElement("canvas");
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext("2d");
+    const stripPx = Math.max(1, Math.min(4, img.naturalHeight));
+    const sy = fromTop ? 0 : Math.max(0, img.naturalHeight - stripPx);
+    ctx.drawImage(img, 0, sy, img.naturalWidth, stripPx, 0, 0, outW, outH);
+    return c.toDataURL("image/png");
+  };
+
+  // Same idea, but for a vertical letterbox gap (left/right edge of the image).
+  const edgeStripV = (img, fromLeft, outW = 40, outH = 400) => {
+    const c = document.createElement("canvas");
+    c.width = outW; c.height = outH;
+    const ctx = c.getContext("2d");
+    const stripPx = Math.max(1, Math.min(4, img.naturalWidth));
+    const sx = fromLeft ? 0 : Math.max(0, img.naturalWidth - stripPx);
+    ctx.drawImage(img, sx, 0, stripPx, img.naturalHeight, 0, 0, outW, outH);
+    return c.toDataURL("image/png");
+  };
+
   const makeBookPDF = async (printMode = false, personalUseNote = false) => {
     // KDP only adds bleed once — on the single outer trim edge — plus once each on top
     // and bottom. It does NOT add bleed on the spine/inner edge (that margin is already
@@ -753,22 +788,46 @@ function ExportCenter({ pub, setPub, book, author, done }) {
           try {
             const fmt = pg.img.includes("png") ? "PNG" : "JPEG";
             let drawW = 215.9, drawH = 215.9, drawX = 0, drawY = by;
+            let srcRatio = 1;
             try {
               const props = doc.getImageProperties(pg.img);
               if (props && props.width && props.height) {
-                const srcRatio = props.width / props.height;
+                srcRatio = props.width / props.height;
                 // "Contain" fit, not "cover" - this image IS the finished page
                 // (text baked into the pixels). Cropping any edge risks slicing off
                 // baked-in text, which is exactly what was happening on later pages
                 // whose source art wasn't a perfect square (different repaint pass /
-                // pipeline). Fit the whole image inside the box and center it, letting
-                // the page background show on any leftover strip, instead of cropping.
+                // pipeline). Fit the whole image inside the box and center it — the
+                // leftover strip (when the art isn't a perfect square) gets filled
+                // below by stretching the image's own edge pixels into it, not left
+                // as bare page background.
                 if (srcRatio > 1) { drawW = 215.9; drawH = 215.9 / srcRatio; }
                 else { drawH = 215.9; drawW = 215.9 * srcRatio; }
                 drawX = (215.9 - drawW) / 2;
                 drawY = by + (215.9 - drawH) / 2;
               }
             } catch (e) { /* couldn't read dimensions — fall back to filling the trim box as-is */ }
+            // Some pages 14+ were painted at a non-square ratio (1100x880, 1400x1119, etc.)
+            // before story-page generation was fixed to request square_hd. Contain-fit
+            // alone leaves a visible bare-page strip top/bottom or left/right on those —
+            // "white above and below the images" per Kirby. Re-painting risks the AI
+            // re-rendering the baked-in text as gibberish (tried once, page 14, got
+            // garbled nonsense text back) and cropping risks slicing through the real
+            // baked-in text near an edge (also confirmed unsafe — page 15's text sits a few
+            // percent off the left edge with no real margin to spare). So instead: stretch
+            // a thin slice of the image's own edge pixels to fill the gap. No regeneration,
+            // no cropping of any real content, page reads as "fully imaged" either way.
+            const topBar = drawY - by, bottomBar = 215.9 - drawH - topBar;
+            const leftBar = drawX, rightBar = 215.9 - drawW - drawX;
+            if (topBar > 0.4 || bottomBar > 0.4 || leftBar > 0.4 || rightBar > 0.4) {
+              try {
+                const img = await loadImageEl(pg.img);
+                if (topBar > 0.4) doc.addImage(edgeStripH(img, true), "PNG", 0, by, 215.9, topBar);
+                if (bottomBar > 0.4) doc.addImage(edgeStripH(img, false), "PNG", 0, by + 215.9 - bottomBar, 215.9, bottomBar);
+                if (leftBar > 0.4) doc.addImage(edgeStripV(img, true), "PNG", 0, by, leftBar, 215.9);
+                if (rightBar > 0.4) doc.addImage(edgeStripV(img, false), "PNG", 215.9 - rightBar, by, rightBar, 215.9);
+              } catch (e) { /* edge-extend failed — page background shows through as before */ }
+            }
             doc.addImage(pg.img, fmt, drawX, drawY, drawW, drawH);
           } catch (e) { /* image unavailable — skip */ }
         }
