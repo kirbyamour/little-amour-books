@@ -3761,7 +3761,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
               </div>
               {MATTER_PAGES.map((mp) => {
                 const d = book.publishing?.[mp.key] || {};
-                const text = d[mp.field] || "";
+                const text = d[mp.field] || matterDefault(book, mp);
                 const skip = mp.skippable && !!d.skipped;
                 return (
                   <div key={mp.key} className="ed-page">
@@ -3936,6 +3936,20 @@ function PageChat({ book, page, onApply, onGenerateImage }) {
    These live at book.publishing.<key>, the exact same record Publishing's own dedicated
    builders (DedicationBuilder, CopyrightBuilder, AboutAuthorBuilder, AboutLABBuilder) read
    and write — this is just a second, chat-enabled door onto the same data, not a fork of it. */
+function matterDefault(book, mp) {
+  if (mp.key === "aboutLAB") {
+    return "Little Amour Books creates gentle, emotionally honest stories for children and families moving through hard things. Our books are made with survivor-centered care, creative technology, and human editorial support \u2014 so more mothers and lived-experience authors can share the stories only they could tell.";
+  }
+  if (mp.key === "copyright") {
+    const pub = book.publishing || {};
+    const d = pub.copyright || {};
+    const yr = d.year || String(new Date().getFullYear());
+    const owner = d.owner || pub.cover?.authorName || book.authorName || "[Author Name]";
+    return "Copyright \u00a9 " + yr + " " + owner + ". All rights reserved. No part of this book may be reproduced, distributed, or transmitted in any form without written permission from the copyright holder, except for brief quotations in reviews.";
+  }
+  return "";
+}
+
 const MATTER_PAGES = [
   { key: "dedication", field: "text", label: "\ud83d\udc8c Dedication", chatLabel: "Dedication",
     skippable: true, rows: 3, placeholder: "For\u2026",
