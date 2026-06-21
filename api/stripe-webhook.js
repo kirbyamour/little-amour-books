@@ -66,15 +66,18 @@ export default async function handler(req, res) {
     if (orderErr) console.error("Order insert error:", orderErr.message);
 
     // 2. Record per-item purchases for digital access
+    const accessTokens = {}; // item.id -> access_token, used to build the delivery link below
     for (const item of items) {
       if (item.type !== "merch") {
+        const accessToken = crypto.randomUUID();
+        accessTokens[item.id] = accessToken;
         await supabase.from("purchases").insert({
           order_id: order?.id,
           email,
           book_id: item.id,
           book_title: item.title,
           book_type: item.type,
-          access_token: crypto.randomUUID(),
+          access_token: accessToken,
           created_at: new Date().toISOString(),
         });
       }
@@ -133,9 +136,10 @@ export default async function handler(req, res) {
       const digitalItems = items.filter((i) => i.type !== "merch");
       const physicalItems = items.filter((i) => i.type === "merch");
 
-      const bookLinks = digitalItems.map((i) =>
-        `<li><a href="${SITE}/book/${i.id}" style="color:#7C3AED;font-weight:600;">${i.title}</a>${i.authorName ? ` <span style="color:#888;">by ${i.authorName}</span>` : ""}</li>`
-      ).join("");
+      const bookLinks = digitalItems.map((i) => {
+        const deliverUrl = accessTokens[i.id] ? `${SITE}/deliver/${accessTokens[i.id]}` : `${SITE}/book/${i.id}`;
+        return `<li><a href="${deliverUrl}" style="color:#7C3AED;font-weight:600;">${i.title}</a>${i.authorName ? ` <span style="color:#888;">by ${i.authorName}</span>` : ""}</li>`;
+      }).join("");
 
       const merchNotice = physicalItems.length
         ? `<p style="margin-top:16px;font-size:14px;color:#555;">Your merch item(s) will ship within 5–10 business days. You'll receive a separate shipping confirmation.</p>`
@@ -156,7 +160,7 @@ export default async function handler(req, res) {
               <div style="background:#fff;border-radius:12px;padding:20px 24px;margin:20px 0;border:1px solid #ECD9C5;">
                 <p style="font-weight:700;color:#4A3B6E;margin-top:0;">Your books:</p>
                 <ul style="padding-left:20px;line-height:2;">${bookLinks}</ul>
-                <p style="font-size:13px;color:#888;margin-bottom:0;">Click any title to start reading. Bookmark it — these links are yours to keep.</p>
+                <p style="font-size:13px;color:#888;margin-bottom:0;">Click any title to download your book. This link is just for you — please don't share it.</p>
               </div>` : ""}
               ${merchNotice}
               <p style="font-size:13px;color:#888;margin-top:24px;">Questions? Reply to this email or visit <a href="${SITE}/contact" style="color:#7C3AED;">${SUPPORT}</a></p>

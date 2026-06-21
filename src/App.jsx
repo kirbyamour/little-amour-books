@@ -582,6 +582,57 @@ function BooksPage({ go }) {
   );
 }
 
+// Gated digital download page — the destination of the confirmation-email
+// link (and of /deliver/:token typed directly). Verifies the token against
+// the purchases table server-side (api/deliver.js) and, if valid, hands back
+// a short-lived signed Storage URL for that book's PDF. Never trusts the
+// token client-side; the page itself shows nothing about the book until the
+// server confirms it.
+function DeliverPage({ token, go }) {
+  const [state, setState] = useState({ status: "loading", url: null, title: null, error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/deliver?token=${encodeURIComponent(token)}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !data.url) {
+          setState({ status: "error", url: null, title: null, error: data.error || "This link isn't working." });
+        } else {
+          setState({ status: "ready", url: data.url, title: data.title, error: null });
+        }
+      } catch (e) {
+        if (!cancelled) setState({ status: "error", url: null, title: null, error: "Something went wrong loading your book." });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  return (
+    <section className="morning page-top">
+      <div className="wrap narrow center">
+        {state.status === "loading" ? (
+          <p className="lead">Getting your book ready…</p>
+        ) : state.status === "error" ? (
+          <>
+            <h2>We couldn't open that link</h2>
+            <p className="lead">{state.error} If you just bought this book, check your email for the most recent copy of this link, or contact <a href="mailto:hello@littleamour.com" style={{ color: "#7C3AED" }}>hello@littleamour.com</a> and we'll send it again.</p>
+            <button className="btn-text" onClick={() => go("home")}>← Back to Little Amour Books</button>
+          </>
+        ) : (
+          <>
+            <h2>Your book is ready{state.title ? `: ${state.title}` : ""}</h2>
+            <p className="lead">This download link is just for you and expires in 10 minutes for security — if it stops working, come back to this same email link and we'll generate a fresh one.</p>
+            <a className="btn-gold" href={state.url} style={{ display: "inline-block", marginTop: 8 }}>Download your PDF</a>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function BookPage({ book, go, toast, addToCart }) {
   const author = AUTHORS[book.author];
   const coming = book.status === "coming";
@@ -4052,8 +4103,20 @@ function MatterChat({ label, intro, book, currentText, onApply }) {
 /* ============================================================
    APP SHELL
    ============================================================ */
+// Initial-load deep-link parsing. The app is otherwise a pure client-state
+// SPA (go() never touches the URL), so without this, navigating directly to
+// /book/:id or /deliver/:token (e.g. from the sitemap or a confirmation
+// email) always rendered the homepage instead. This only resolves the
+// *first* render; in-app navigation continues to go through go() as before.
+function routeFromPath(pathname) {
+  const parts = (pathname || "/").split("/").filter(Boolean);
+  if (parts[0] === "deliver" && parts[1]) return { page: "deliver", id: parts[1] };
+  if (parts[0] === "book" && parts[1]) return { page: "book", id: parts[1] };
+  return { page: "home", id: null };
+}
+
 export default function App() {
-  const [route, setRoute] = useState({ page: "home", id: null });
+  const [route, setRoute] = useState(() => routeFromPath(window.location.pathname));
   const [studioHome, setStudioHome] = useState(0); // bumped to force KirbyStudio back to its dashboard list
   const [account, setAccount] = useState(() => {
     try { const raw = localStorage.getItem("la_account"); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
@@ -4213,6 +4276,7 @@ export default function App() {
       <BookPage book={currentBook} go={go} toast={toast} addToCart={addToCart} />
     </>
   );
+  else if (route.page === "deliver") page = <DeliverPage token={route.id} go={go} />;
   else if (route.page === "cart") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} checkoutLoading={checkoutLoading} />;
   else if (route.page === "checkout") page = <CartPage cart={cart} removeFromCart={removeFromCart} go={go} onCheckout={completeOrder} checkoutLoading={checkoutLoading} />;
   else if (route.page === "thanks") page = <ThanksPage order={order} go={go} />;
