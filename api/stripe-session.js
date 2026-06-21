@@ -38,6 +38,8 @@ export default async function handler(req, res) {
       mode: "payment",
       line_items,
       customer_email: email || undefined,
+      automatic_tax: { enabled: true },
+      billing_address_collection: "required",
       success_url: `${SITE}/thanks?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${SITE}/cart`,
       metadata: {
