@@ -1091,6 +1091,30 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       img.src = dataUrl;
     });
 
+  // Pushes the customer-facing Digital Reading PDF to the private "digital-pdfs"
+  // Storage bucket at "<book.id>.pdf" — the exact path api/deliver.js looks up when a
+  // customer clicks their confirmation-email download link. Uses a signed upload URL
+  // (api/publish-upload mints it, no secret shipped to the browser) so the actual file
+  // bytes go straight to Supabase Storage and never pass through a Vercel function body
+  // limit. A failure here is logged as a warning, not a hard export failure — the
+  // author's local ZIP download still succeeds either way; it just means live customer
+  // delivery for this book needs a retry before anyone buys it.
+  const uploadDigitalPdfToStorage = async (bookId, pdfArrayBuffer) => {
+    const mintRes = await fetch("/api/publish-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookId }),
+    });
+    const mint = await mintRes.json();
+    if (!mintRes.ok || !mint.signedUrl) throw new Error(mint.error || "Could not get an upload URL.");
+    const putRes = await fetch(mint.signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/pdf" },
+      body: pdfArrayBuffer,
+    });
+    if (!putRes.ok) throw new Error(`Storage upload failed (${putRes.status}).`);
+  };
+
   const runExport = async () => {
     setBusy(true); setLog([]); setFinished(false);
     const zip = new JSZip();
@@ -1121,7 +1145,17 @@ function ExportCenter({ pub, setPub, book, author, done }) {
 
       addLog("  Digital reading PDF…");
       const dPDF = await makeBookPDF(false);
-      cust.file(`${safe}_Digital_Reading.pdf`, dPDF.output("arraybuffer"));
+      const dPDFBytes = dPDF.output("arraybuffer");
+      cust.file(`${safe}_Digital_Reading.pdf`, dPDFBytes);
+
+      addLog("  Uploading customer download copy…");
+      try {
+        await uploadDigitalPdfToStorage(book.id, dPDFBytes);
+        addLog("  ✓ Live download file updated — buyers' email links will serve this version.");
+      } catch (e) {
+        addLog(`  ⚠ Couldn't update the live download file (${e.message}). The ZIP below is still correct — re-run export to retry delivery.`);
+        findings.push({ level: "warn", area: "Delivery", message: `Live digital-delivery upload failed: ${e.message}. Customers using the emailed download link won't get this book until a re-export succeeds.` });
+      }
 
       addLog("  Printable PDF…");
       const pPDF = await makeBookPDF(false, true);
