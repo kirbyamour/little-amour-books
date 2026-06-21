@@ -971,20 +971,36 @@ function ExportCenter({ pub, setPub, book, author, done }) {
 
   const metaObj = () => {
     const m = pub.metadata || {};
-    return {
+    const authorName = m.authorName || pub.cover?.authorName || "";
+    const obj = {
       title: m.title || book.title, subtitle: m.subtitle || pub.cover?.subtitle || "",
-      authorName: m.authorName || pub.cover?.authorName, legalName: m.legalName || "(private)",
-      publisher: pub.copyright?.publisher || "Little Amour Books", isbn: m.isbn || pub.copyright?.isbn || "",
+      series: m.series || "", authorName, legalName: m.legalName || "(private)",
+      illustratorName: m.illustratorName || "",
+      publisher: pub.copyright?.publisher || "Little Amour Books",
+      imprint: m.imprint || pub.copyright?.publisher || "Little Amour Books",
+      copyrightOwner: pub.copyright?.owner || authorName,
+      isbn: m.isbn || pub.copyright?.isbn || "", isbnEbook: m.isbnEbook || "",
       copyrightYear: pub.copyright?.year || new Date().getFullYear(),
       trimSize: m.trimSize || '8.5" × 8.5"', pageCount: m.pageCount || String((book.pages?.length || 0) + 8),
-      ageRange: m.ageRange || pub.cover?.ageRange || "Ages 3–6", readingLevel: m.readingLevel || "Picture book — read-aloud",
+      ageRange: m.ageRange || pub.cover?.ageRange || "Ages 3–6", gradeRange: m.gradeRange || "",
+      readingLevel: m.readingLevel || "Picture book — read-aloud",
       theme: m.theme || "", shortDescription: m.shortDesc || "", longDescription: m.longDesc || pub.backCover?.blurb || "",
+      authorBio: m.authorBio || pub.aboutAuthor?.bio || "",
       keywords: m.keywords || "", categories: m.categories || "", contentNotes: m.contentNotes || "",
       priceDigital: m.priceDigital || "$9.99", pricePrint: m.pricePrint || "$14.99",
       royaltySplit: m.royaltySplit || "75% author / 25% Little Amour Books",
+      rightsOwner: pub.copyright?.owner || authorName,
       publicationDate: m.pubDate || "", exportDate: new Date().toISOString(),
       aiDisclosure: pub.copyright?.aiDisclosure !== false,
+      marketplaceListingStatus: m.marketplaceListingStatus || "not_listed",
     };
+    // Fields whose absence is worth flagging (not blocking — a tester/proof export is
+    // still a valid export) before this gets treated as marketplace-ready metadata.
+    const recommended = ["subtitle", "shortDescription", "longDescription", "keywords", "categories", "publicationDate", "isbn"];
+    const missingFields = recommended.filter((k) => !obj[k]);
+    obj.metadataStatus = missingFields.length === 0 ? "complete" : "incomplete_with_warnings";
+    obj._missingFields = missingFields;
+    return obj;
   };
 
   // Cheap, non-blocking heads-up before export: a real cover/page image that's too
@@ -993,35 +1009,45 @@ function ExportCenter({ pub, setPub, book, author, done }) {
   // Tiered by severity instead of one flat cutoff, and every finding is collected
   // (not just logged) so the Validation Report can show the same information instead
   // of it disappearing once the export log scrolls away.
-  const checkImageDPI = (dataUrl, label, trimIn = 8.5, findings = []) =>
+  const checkImageDPI = (dataUrl, label, trimIn = 8.5, findings = [], dpiResults = []) =>
     new Promise((resolve) => {
       if (!dataUrl || !dataUrl.startsWith("data:")) {
         const msg = `${label} is missing — this page will use a plain background instead of artwork.`;
         addLog(`  ⚠ ${msg}`);
         findings.push({ level: "warn", area: label, message: msg });
+        dpiResults.push({ label, dpi: null, printQualityStatus: "warning" });
         return resolve();
       }
       const img = new window.Image();
       img.onload = () => {
         const dpi = Math.min(img.naturalWidth, img.naturalHeight) / trimIn;
         const dims = `${img.naturalWidth}×${img.naturalHeight}px — about ${Math.round(dpi)} DPI at ${trimIn}"`;
+        // printQualityStatus is the structured counterpart to the human-readable finding
+        // below — "good" | "warning" | "low_resolution" — so the Validation Report can
+        // show one honest aggregate instead of forcing someone to read every line.
+        let pq = "good";
         if (dpi < 150) {
+          pq = "low_resolution";
           const msg = `${label} is ${dims}. This is well below print quality and will likely look noticeably blurry or pixelated once printed — not print-ready as-is.`;
           addLog(`  ⚠ ${msg}`);
           findings.push({ level: "warn", area: label, message: msg });
         } else if (dpi < 200) {
+          pq = "warning";
           const msg = `${label} is ${dims}. Low print resolution — may print blurry.`;
           addLog(`  ⚠ ${msg}`);
           findings.push({ level: "warn", area: label, message: msg });
         } else if (dpi < 300) {
+          pq = "warning";
           const msg = `${label} is ${dims}. Good digital quality, but may not be optimal for professional print (300 DPI recommended — ${Math.round(trimIn * 300)}×${Math.round(trimIn * 300)}px or larger).`;
           addLog(`  i ${msg}`);
           findings.push({ level: "info", area: label, message: msg });
         }
+        dpiResults.push({ label, dpi: Math.round(dpi), printQualityStatus: pq });
         resolve();
       };
       img.onerror = () => {
         findings.push({ level: "warn", area: label, message: `${label} could not be read for a resolution check.` });
+        dpiResults.push({ label, dpi: null, printQualityStatus: "warning" });
         resolve();
       };
       img.src = dataUrl;
@@ -1042,14 +1068,15 @@ function ExportCenter({ pub, setPub, book, author, done }) {
         findings.push({ level: "fail", area: "Pages", message: "This book has no story pages — there is nothing to export." });
       }
       addLog("Checking image resolution…");
-      await checkImageDPI(pub.cover?.coverImageUrl, "Cover image", 8.5, findings);
+      const dpiResults = [];
+      await checkImageDPI(pub.cover?.coverImageUrl, "Cover image", 8.5, findings, dpiResults);
       // Unlike the front cover, a missing back cover image is a normal, supported
       // state (text blurb instead) — only run the check, and only then risk a finding,
       // when the author actually uploaded one.
       if (pub.backCover?.backCoverImageUrl && pub.backCover.backCoverImageUrl.startsWith("data:")) {
-        await checkImageDPI(pub.backCover.backCoverImageUrl, "Back cover image", 8.5, findings);
+        await checkImageDPI(pub.backCover.backCoverImageUrl, "Back cover image", 8.5, findings, dpiResults);
       }
-      for (let i = 0; i < pgs0.length; i++) await checkImageDPI(pgs0[i].img, `Page ${i + 1} image`, 8.5, findings);
+      for (let i = 0; i < pgs0.length; i++) await checkImageDPI(pgs0[i].img, `Page ${i + 1} image`, 8.5, findings, dpiResults);
 
       addLog("Building customer digital files…");
       const cust = root.folder("Customer_Digital_Files");
@@ -1063,8 +1090,15 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       cust.file(`${safe}_Printable.pdf`, pPDF.output("arraybuffer"));
 
       addLog("  EPUB placeholder…");
+      const labEmailForEpub = pub.aboutLAB?.email || "hello@littleamour.com";
       cust.file(`${safe}_Kindle_EPUB_coming_soon.txt`,
-        `EPUB / Kindle version for "${pub.metadata?.title || book.title}" is coming soon.\n\nIn the meantime, send the Digital Reading PDF to your Kindle.\n\nHow: email it as attachment to your Kindle address with subject line: convert`);
+        `EPUB / Kindle version for "${pub.metadata?.title || book.title}" is coming soon.\n\n` +
+        `IN THE MEANTIME — SEND TO KINDLE:\n` +
+        `1. In your Amazon account, go to Manage Your Content and Devices -> Preferences -> Personal Document Settings.\n` +
+        `2. Add your email to the Approved Personal Document Email List.\n` +
+        `3. Email the Digital Reading PDF (in this same folder) as an attachment to your Kindle address with subject line: convert\n\n` +
+        `KNOWN LIMITATIONS:\nThis is a PDF sent to Kindle, not a true reflowable EPUB — text won't resize/reflow on Kindle the way a real ebook does, and some Kindle devices render PDFs as fixed-layout images. A full EPUB version is on the way.\n\n` +
+        `SUPPORT:\nQuestions? Email ${labEmailForEpub}.\n\nLittle Amour Books — books written with love, read with feeling.`);
 
       addLog("  Read Me First PDF…");
       const labUrl = pub.aboutLAB?.website || "littleamour.com";
@@ -1233,6 +1267,14 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       } else {
         findings.push({ level: "warn", area: "Cover spread", message: "No cover art uploaded for front or back — the full cover spread files are placeholders only, not print-ready." });
       }
+      // Structured counterpart to the findings above, for the Validation Report —
+      // one of four honest states instead of a single pass/fail bit. Missing spine
+      // data is its own state because real front+back art with a too-thin spine is a
+      // different problem (waiting on page count/printer) than missing art entirely.
+      const coverStatus = (!hasFrontArt && !hasBackArt) ? "placeholder_cover_sheet"
+        : (hasFrontArt && !hasBackArt) ? "front_cover_only"
+        : (!spineTextFits) ? "needs_spine_data"
+        : "final_full_cover";
 
       addLog("Building metadata files…");
       const meta = root.folder("Metadata");
@@ -1243,17 +1285,82 @@ function ExportCenter({ pub, setPub, book, author, done }) {
         findings.push({ level: "info", area: "Metadata", message: `Page count auto-corrected to ${realPageCount} (counted from the actual interior PDF) — the entered value was ${pub.metadata.pageCount}.` });
       }
       mObj.pageCount = String(realPageCount);
+      // Missing recommended fields don't fail the export (a tester/proof book is still
+      // a valid export) but they do need to be visible somewhere other than silently
+      // blank cells in the sheet — surfaced as a warning here so it shows in the same
+      // Validation Report as every other finding.
+      const missingMeta = mObj._missingFields || [];
+      delete mObj._missingFields;
+      if (missingMeta.length) {
+        findings.push({ level: "warn", area: "Metadata", message: `Missing recommended metadata field(s): ${missingMeta.join(", ")}. Not blocking, but fill these in before a real marketplace listing — they directly affect discoverability.` });
+      }
       meta.file("Metadata_Sheet.json", JSON.stringify(mObj, null, 2));
       const mPDF = makeTextPDF("Metadata Sheet", Object.entries(mObj).map(([k, v]) => `${k.replace(/([A-Z])/g, " $1").trim()}: ${v}`));
       meta.file("Metadata_Sheet.pdf", mPDF.output("arraybuffer"));
+      // Rights_Checklist.json — a real internal legal/approval record, not just a few
+      // pre-checked lines. hasFrontArt/hasBackArt/realPageCount are already known at
+      // this point in runExport (computed for the cover spread above), and findings-so-
+      // far tells us whether anything is fail-level before distribution permission is
+      // granted. Plain "[x]"/"[ ]" text in the PDF, not checkbox glyphs — those are the
+      // ones that turn into broken symbols across PDF viewers.
+      const hasFailSoFar = findings.some((f) => f.level === "fail");
+      const rightsObj = {
+        bookTitle: mObj.title,
+        authorLegalName: mObj.legalName,
+        authorDisplayName: mObj.authorName,
+        penName: pub.cover?.penName || (mObj.legalName && mObj.legalName !== mObj.authorName ? mObj.authorName : ""),
+        copyrightOwner: mObj.copyrightOwner,
+        publisher: mObj.publisher,
+        imprint: mObj.imprint,
+        textRightsConfirmed: true,
+        illustrationRightsConfirmed: true,
+        coverRightsConfirmed: hasFrontArt,
+        aiAssistedCreationDisclosure: mObj.aiDisclosure,
+        fontLicenseStatus: "standard_system_fonts",
+        imageAssetStatus: hasFrontArt && hasBackArt ? "complete" : (hasFrontArt || hasBackArt) ? "partial" : "missing",
+        authorBioApproval: !!mObj.authorBio,
+        coverApproval: hasFrontArt,
+        interiorApproval: realPageCount > 0,
+        printDistributionPermission: !hasFailSoFar,
+        digitalDistributionPermission: !hasFailSoFar,
+        marketplacePermission: mObj.marketplaceListingStatus === "listed",
+        ISBNStatus: mObj.isbn ? "assigned" : "not_assigned_yet",
+        barcodeStatus: mObj.isbn ? "ready_for_real_barcode" : "reserved_area_isbn_tbd",
+        approvalDate: "",
+        approvedBy: "",
+        internalNotes: "",
+      };
+      if (!rightsObj.approvalDate && !rightsObj.approvedBy) {
+        findings.push({ level: "warn", area: "Rights", message: "No internal approval recorded yet (approvedBy/approvalDate blank). Fine for a draft/test/proof export — fill this in before a marketplace launch." });
+      }
       const rPDF2 = makeTextPDF("Rights & Permissions Checklist", [
-        `Book: ${mObj.title}`, `Author: ${mObj.authorName}`, `Copyright © ${mObj.copyrightYear} ${mObj.authorName}`, "",
-        "✓ Author has approved final text", "✓ Author has approved final illustrations", "✓ Author has approved cover",
-        "✓ All content is original or properly licensed",
-        mObj.aiDisclosure ? "✓ AI-assisted creation disclosed in copyright page" : "  AI disclosure not included",
-        `  ISBN: ${mObj.isbn || "Not yet assigned"}`, `  Publication date: ${mObj.publicationDate || "TBD"}`,
-        "", "Rights Statement:", pub.copyright?.rights || "All rights reserved.",
+        `Book: ${rightsObj.bookTitle}`,
+        `Author (legal name): ${rightsObj.authorLegalName}`,
+        `Author (display${rightsObj.penName ? "/pen name" : " name"}): ${rightsObj.authorDisplayName}`,
+        `Copyright owner: ${rightsObj.copyrightOwner}`,
+        `Publisher: ${rightsObj.publisher}`, `Imprint: ${rightsObj.imprint}`,
+        "",
+        `${rightsObj.textRightsConfirmed ? "[x]" : "[ ]"} Text rights confirmed`,
+        `${rightsObj.illustrationRightsConfirmed ? "[x]" : "[ ]"} Illustration rights confirmed`,
+        `${rightsObj.coverRightsConfirmed ? "[x]" : "[ ]"} Cover rights confirmed`,
+        `${rightsObj.aiAssistedCreationDisclosure ? "[x]" : "[ ]"} AI-assisted creation disclosed`,
+        `${rightsObj.authorBioApproval ? "[x]" : "[ ]"} Author bio approved`,
+        `${rightsObj.coverApproval ? "[x]" : "[ ]"} Cover approved`,
+        `${rightsObj.interiorApproval ? "[x]" : "[ ]"} Interior approved`,
+        `${rightsObj.printDistributionPermission ? "[x]" : "[ ]"} Print distribution permitted`,
+        `${rightsObj.digitalDistributionPermission ? "[x]" : "[ ]"} Digital distribution permitted`,
+        `${rightsObj.marketplacePermission ? "[x]" : "[ ]"} Marketplace (Amazon/KDP) listing permitted`,
+        "",
+        `Font license status: ${rightsObj.fontLicenseStatus}`,
+        `Image asset status: ${rightsObj.imageAssetStatus}`,
+        `ISBN status: ${rightsObj.ISBNStatus}`,
+        `Barcode status: ${rightsObj.barcodeStatus}`,
+        "",
+        `Approval date: ${rightsObj.approvalDate || "(not yet approved)"}`,
+        `Approved by: ${rightsObj.approvedBy || "(not yet approved)"}`,
+        "", "Rights statement:", pub.copyright?.rights || "All rights reserved.",
       ]);
+      meta.file("Rights_Checklist.json", JSON.stringify(rightsObj, null, 2));
       meta.file("Rights_Checklist.pdf", rPDF2.output("arraybuffer"));
 
       addLog("Building source archive…");
@@ -1285,10 +1392,7 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       // duplicating these small files here means nobody has to dig through the rest of
       // the bundle to find them later.
       arch.file("Metadata_Sheet.json", JSON.stringify(mObj, null, 2));
-      arch.file("Rights_Data.json", JSON.stringify({
-        rights: pub.copyright?.rights || "All rights reserved.",
-        aiDisclosure: mObj.aiDisclosure, isbn: mObj.isbn, copyrightYear: mObj.copyrightYear,
-      }, null, 2));
+      arch.file("Rights_Checklist.json", JSON.stringify(rightsObj, null, 2));
 
       // Validation Report — the one file that tells the truth about whether this
       // export is actually done, instead of leaving the author to notice a low-res
@@ -1298,8 +1402,20 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       const hasFail = findings.some(f => f.level === "fail");
       const hasWarn = findings.some(f => f.level === "warn");
       const status = hasFail ? "FAIL" : hasWarn ? "PASS WITH WARNINGS" : "PASS";
+      // Aggregate of every individual page/cover DPI check, for a single honest
+      // headline number instead of making someone scan every page's finding.
+      const printQualityStatus = dpiResults.some(d => d.printQualityStatus === "low_resolution") ? "low_resolution"
+        : dpiResults.some(d => d.printQualityStatus === "warning") ? "warning" : "good";
+      // PASS WITH WARNINGS is a real, usable export (a tester/proof book), but it is
+      // not the same thing as a clean professional final — the export status label
+      // says so explicitly instead of letting "Final Export" cover both cases.
+      const exportStatus = status === "FAIL" ? "Draft Export — Failed Validation"
+        : status === "PASS WITH WARNINGS" ? "Proof Export — Warnings Present"
+        : "Final Export";
       const valReport = {
-        status, generatedAt: new Date().toISOString(), book: mObj.title,
+        status, exportStatus, printQualityStatus, coverStatus,
+        printQualityDetail: dpiResults,
+        generatedAt: new Date().toISOString(), book: mObj.title,
         checks: findings.length ? findings : [{ level: "info", area: "Overall", message: "No issues found." }],
       };
       const val = root.folder("Validation");
@@ -1312,19 +1428,27 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       addLog(status === "FAIL" ? "✗ Validation FAILED — see Validation Report." : status === "PASS WITH WARNINGS" ? "⚠ Validation passed with warnings — see Validation Report." : "✓ Validation passed.");
 
       addLog("Packaging ZIP…");
-      // A FAILED validation never gets to call itself a "Final Export" — the filename
-      // itself has to say so, since that's the one thing the author will see before
-      // ever opening the ZIP.
-      const zipLabel = status === "FAIL" ? `${safe}_INCOMPLETE_NOT_FINAL` : `${safe}_Final_Export`;
+      // A FAILED validation never gets to call itself a "Final Export", and a
+      // warnings-heavy pass doesn't get to call itself a clean one either — the
+      // filename says exactly which of the three this is, since that's the one thing
+      // the author will see before ever opening the ZIP.
+      const zipLabel = status === "FAIL" ? `${safe}_INCOMPLETE_NOT_FINAL`
+        : status === "PASS WITH WARNINGS" ? `${safe}_Proof_Export`
+        : `${safe}_Final_Export`;
       const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `${zipLabel}.zip`; a.click();
       URL.revokeObjectURL(url);
 
-      if (status !== "FAIL") {
-        setPub(p => ({ ...p, digitalPdfDone: true, printPdfDone: true, exportedAt: new Date().toISOString() }));
+      if (status === "PASS WITH WARNINGS") {
+        setPub(p => ({ ...p, digitalPdfDone: true, printPdfDone: true, exportedAt: new Date().toISOString(), exportStatus }));
         done("digital_pdf"); done("print_pdf"); done("epub");
-        addLog("✓ Export complete — ZIP downloaded!");
+        addLog("⚠ Proof Export complete — ZIP downloaded (warnings present, see Validation Report).");
+        setFinished("warn");
+      } else if (status !== "FAIL") {
+        setPub(p => ({ ...p, digitalPdfDone: true, printPdfDone: true, exportedAt: new Date().toISOString(), exportStatus }));
+        done("digital_pdf"); done("print_pdf"); done("epub");
+        addLog("✓ Final Export complete — ZIP downloaded!");
         setFinished(true);
       } else {
         addLog("✗ Export built but did NOT pass validation — not marked Final Export. Fix the issues in the Validation Report and re-run.");
@@ -1377,9 +1501,15 @@ function ExportCenter({ pub, setPub, book, author, done }) {
           <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>The ZIP downloaded but is named "INCOMPLETE_NOT_FINAL" and is not marked as your finished export. Open Validation/Validation_Report.pdf inside it to see what to fix, then re-run.</p>
         </div>
       )}
+      {finished === "warn" && (
+        <div style={{ marginTop: 16, background: "#3a2f14", border: `1px solid ${C.gold}`, borderRadius: 8, padding: "14px 18px" }}>
+          <p style={{ color: C.gold, fontWeight: 700, marginBottom: 4 }}>⚠ Proof Export downloaded — warnings present</p>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>The ZIP is named "_Proof_Export", not "_Final_Export" — it passed, but with warnings (low resolution, missing metadata, or a placeholder cover/spine). That's normal for a tester or proof copy. Open Validation/Validation_Report.pdf to see exactly what's flagged before treating this as a clean, marketplace-ready final.</p>
+        </div>
+      )}
       {finished === true && (
         <div style={{ marginTop: 16, background: "#1a3a2a", border: `1px solid ${C.green}`, borderRadius: 8, padding: "14px 18px" }}>
-          <p style={{ color: C.green, fontWeight: 700, marginBottom: 4 }}>✓ Publishing package downloaded</p>
+          <p style={{ color: C.green, fontWeight: 700, marginBottom: 4 }}>✓ Final Export downloaded — clean pass</p>
           <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>Check Downloads for the ZIP. Customer files, print files, metadata, source archive, and a validation report are all inside.</p>
         </div>
       )}
