@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import AdminDashboard from "./AdminDashboard";
-import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap, displayAge } from "./Bookstore";
+import { PLACEHOLDER_BOOKS, PACKS, StoreLanding, BooksShop, PacksPage, PackPage, STORE_CSS, coverImageMap, formatMap, displayAge } from "./Bookstore";
 import { supabase } from "./supabaseClient";
 import {
   TermsOfSalePage, RefundPolicyPage, DigitalLicensePage, ShippingPolicyPage,
@@ -585,6 +585,12 @@ function BooksPage({ go }) {
 function BookPage({ book, go, toast, addToCart }) {
   const author = AUTHORS[book.author];
   const coming = book.status === "coming";
+  // Author-controlled sell formats (Publishing -> Sell As). Falls back to today's
+  // default (PDF + Physical, no Amazon) for any book the author hasn't touched yet.
+  const fmt = formatMap[book.id] || { sellAs: { pdf: true, physical: true, amazon: false }, amazonUrl: "" };
+  const sellAs = fmt.sellAs || { pdf: true, physical: true, amazon: false };
+  const showAmazon = !!sellAs.amazon && !!fmt.amazonUrl;
+  const noFormats = !sellAs.pdf && !sellAs.physical && !showAmazon;
   return (
     <section className="morning page-top">
       <div className="wrap">
@@ -618,14 +624,25 @@ function BookPage({ book, go, toast, addToCart }) {
                 <button className="btn-gold" onClick={() => toast("This book is in the studio now. In production this joins a notify-me list — we'll let you know the moment it launches.")}>
                   Notify me when it launches
                 </button>
+              ) : noFormats ? (
+                <p className="fine" style={{ margin: 0 }}>This book isn't currently available for purchase.</p>
               ) : (
                 <>
-                  <button className="btn-gold" onClick={() => addToCart ? addToCart({ type: "book", id: book.id, title: book.title, price: book.price, author: book.author, authorName: book.authorName, grad: book.grad, motif: book.motif }) : go("checkout", book.id)}>
-                    Add to bag — ${book.price.toFixed(2)}
-                  </button>
-                  <button className="btn-line dark" onClick={() => toast("In production this links to the book's live Amazon listing, published under the Little Amour imprint.")}>
-                    Buy on Amazon
-                  </button>
+                  {sellAs.pdf && (
+                    <button className="btn-gold" onClick={() => addToCart ? addToCart({ type: "book", format: "pdf", id: book.id, title: book.title, price: book.price, author: book.author, authorName: book.authorName, grad: book.grad, motif: book.motif }) : go("checkout", book.id)}>
+                      Add to bag — PDF — ${book.price.toFixed(2)}
+                    </button>
+                  )}
+                  {sellAs.physical && (
+                    <button className={sellAs.pdf ? "btn-line dark" : "btn-gold"} onClick={() => addToCart ? addToCart({ type: "book", format: "physical", id: book.id, title: book.title, price: book.price, author: book.author, authorName: book.authorName, grad: book.grad, motif: book.motif }) : go("checkout", book.id)}>
+                      Add to bag — Physical — ${book.price.toFixed(2)}
+                    </button>
+                  )}
+                  {showAmazon && (
+                    <a className="btn-line dark" href={fmt.amazonUrl} target="_blank" rel="noopener noreferrer">
+                      Buy on Amazon
+                    </a>
+                  )}
                 </>
               )}
             </div>
@@ -742,7 +759,7 @@ function CartPage({ cart, removeFromCart, go, onCheckout, checkoutLoading }) {
                   <div className="cart-item-info">
                     <p className="cart-item-title">{item.title}</p>
                     {item.authorName && <p className="cart-item-by">by {item.authorName}</p>}
-                    <p className="cart-item-type">{item.type === "pack" ? "Book Pack" : "Digital Book"}</p>
+                    <p className="cart-item-type">{item.type === "pack" ? "Book Pack" : item.format === "physical" ? "Physical Book" : item.format === "pdf" ? "Digital Book (PDF)" : "Digital Book"}</p>
                   </div>
                   <div className="cart-item-right">
                     <p className="cart-item-price">${item.price.toFixed(2)}</p>
@@ -4075,6 +4092,13 @@ export default function App() {
             const next = { url, title: c.title, subtitle: c.subtitle, authorName: c.authorName, series: c.series, ageRange: c.ageRange, showAgeBadge: c.showAgeBadge, showLogo: c.showLogo, finishedArt: c.finishedArt };
             const prev = coverImageMap[sb.id];
             if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) { coverImageMap[sb.id] = next; changed = true; }
+
+            // Sell-format flags (PDF / Physical / Amazon) set by the author in Publishing -> Sell As.
+            const sellAs = sb.publishing?.sellAs;
+            const amazonUrl = sb.publishing?.amazonUrl;
+            const nextFmt = { sellAs: sellAs || { pdf: true, physical: true, amazon: false }, amazonUrl: amazonUrl || "" };
+            const prevFmt = formatMap[sb.id];
+            if (!prevFmt || JSON.stringify(prevFmt) !== JSON.stringify(nextFmt)) { formatMap[sb.id] = nextFmt; changed = true; }
           });
         });
         if (changed) setCoverTick((t) => t + 1);

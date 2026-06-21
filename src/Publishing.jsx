@@ -532,6 +532,44 @@ function CopyrightBuilder({ pub, setPub, book, done }) {
   );
 }
 
+/* ── SELL AS ── */
+function SellAsBuilder({ pub, setPub, book, done }) {
+  // Default: if the author has never touched this, treat it the way the store
+  // already behaves today (PDF + Physical both available, Amazon off) so existing
+  // books don't silently disappear from sale the moment this ships.
+  const d = pub.sellAs || { pdf: true, physical: true, amazon: false };
+  const amazonUrl = pub.amazonUrl || "";
+  const s = (k, v) => setPub(p => ({ ...p, sellAs: { ...(p.sellAs || { pdf: true, physical: true, amazon: false }), [k]: v } }));
+  const setAmazonUrl = v => setPub(p => ({ ...p, amazonUrl: v }));
+  const [saved, setSaved] = useState(false);
+  const noneSelected = !d.pdf && !d.physical && !d.amazon;
+  const save = () => { setSaved(true); done("sellas"); setTimeout(() => setSaved(false), 2000); };
+  return (
+    <div>
+      <h3 style={{ color: C.cream, fontFamily: "Georgia,serif", marginBottom: 4 }}>How should this book be sold?</h3>
+      <p style={{ color: C.muted, fontSize: 14, marginBottom: 22 }}>Choose every way this book is available. The public book page only shows buy buttons for what you check here.</p>
+
+      <Toggle label="📄 PDF — digital download, sold and delivered on Little Amour Books" value={!!d.pdf} onChange={v => s("pdf", v)} />
+      <Toggle label="📦 Physical — printed copy, sold and shipped through Little Amour Books" value={!!d.physical} onChange={v => s("physical", v)} />
+      <Toggle label="🛒 Amazon — link out to a listing you manage on Amazon (KDP)" value={!!d.amazon} onChange={v => s("amazon", v)} />
+
+      {d.amazon && (
+        <Field label="Amazon listing URL" note="Paste the live Amazon product page link. The public Buy on Amazon button will go straight here.">
+          <TI value={amazonUrl} onChange={setAmazonUrl} placeholder="https://www.amazon.com/dp/XXXXXXXXXX" />
+        </Field>
+      )}
+      {d.amazon && !amazonUrl && (
+        <p style={{ color: C.gold, fontSize: 12.5, marginTop: -8, marginBottom: 14 }}>Amazon is checked but no URL is set yet — the Amazon button won't appear on the public page until you add one.</p>
+      )}
+      {noneSelected && (
+        <p style={{ color: "#E2746A", fontSize: 12.5, marginTop: -4, marginBottom: 14 }}>Nothing is checked — this book won't show any buy button on its public page until at least one format is selected.</p>
+      )}
+
+      <SaveRow onSave={save} saved={saved} />
+    </div>
+  );
+}
+
 /* ── METADATA ── */
 function MetadataBuilder({ pub, setPub, book, done }) {
   const d = pub.metadata || {};
@@ -1634,6 +1672,7 @@ const TABS = [
   { id: "about_lab",    label: "🌙 About Us" },
   { id: "copyright",    label: "© Copyright" },
   { id: "metadata",     label: "🗂 Metadata" },
+  { id: "sellas",       label: "🛍 Sell As" },
   { id: "export",       label: "📦 Export" },
   { id: "listing",      label: "🛒 Listing Copy" },
 ];
@@ -1708,6 +1747,7 @@ export default function PublishingModule({ book, setBook, author, collection, on
       case "about_lab":    return <AboutLABBuilder pub={pub} setPub={setPub} done={markDone} />;
       case "copyright":    return <CopyrightBuilder pub={pub} setPub={setPub} book={book} done={markDone} />;
       case "metadata":     return <MetadataBuilder pub={pub} setPub={setPub} book={book} done={markDone} />;
+      case "sellas":       return <SellAsBuilder pub={pub} setPub={setPub} book={book} done={markDone} />;
       case "export":       return <ExportCenter pub={pub} setPub={setPub} book={book} author={author} done={markDone} />;
       case "listing":      return <ProductListingGenerator pub={pub} book={book} />;
       default:

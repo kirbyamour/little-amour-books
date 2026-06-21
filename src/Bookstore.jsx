@@ -21,6 +21,9 @@ const P = {
 // can show it, without prop-drilling through every page that reads the module-level BOOKS
 // constant directly.
 export const coverImageMap = {};
+// Bridges each author's "Sell As" checkboxes (Publishing -> studio_data.books[].publishing.sellAs/amazonUrl)
+// into the public site, keyed by book id. Same pattern as coverImageMap above.
+export const formatMap = {};
 
 // Every public age-range display (book tiles, shop cards, book detail page) used to read
 // book.age straight off the static placeholder BOOKS/PLACEHOLDER_BOOKS array — a hardcoded
