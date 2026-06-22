@@ -3293,7 +3293,13 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         // draft written straight from the conversation, instead of indirectly asking the
         // model to "parse" whatever Amora's last reply happened to be (which invents
         // nonsense characters if that reply wasn't actually a character sheet).
-        const isBuildBible = !isSaveBible && !isMultiPageReq && /character|bible|cast/i.test(text)
+        // Excludes rawIdeaContentMatch for the same reason as isImageReq above: a raw concept
+        // brief that asks Amora to figure out "main characters" as part of the concept (rather
+        // than handing over already-decided character names) should go to discovery/starter-
+        // package generation, not to the build-bible-from-chat-history path, which has no real
+        // character detail to work from yet and will correctly refuse rather than invent one —
+        // which reads to the author as Amora asking for information she already gave.
+        const isBuildBible = !isSaveBible && !isMultiPageReq && !rawIdeaContentMatch && /character|bible|cast/i.test(text)
           && /creat|build|writ|generat|make|start|set up|come up with/i.test(text);
 
         // Detect "lock the character bible" said in plain chat — this used to fall through to
