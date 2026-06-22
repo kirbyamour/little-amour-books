@@ -4460,8 +4460,19 @@ function PageChat({ book, page, onApply, onGenerateImage }) {
   // Anything that reads as "generate/draw/paint THIS IMAGE" gets routed to the real
   // image pipeline below — never to free-text chat, which has no way to actually paint
   // anything and was previously just narrating fake "Done" messages.
-  const isImgReq = (t) => /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(t)
-    && /page|scene|spread|cover|background|setting|image|picture|illustrat|art\b|drawing/i.test(t);
+  // Generic verbs like "make"/"create" are ambiguous on their own — "make page 1 warmer"
+  // is a wording request, not an art request, even though it mentions "page." Only treat
+  // those generic verbs as an image request when paired with an explicit art noun
+  // (image/picture/illustration/art/drawing). Strong, unambiguous art verbs
+  // (paint/draw/generate/render/visualize/sketch/illustrate) still pair with the full noun
+  // set, since "paint this page" is the natural way to ask for art here.
+  const isImgReq = (t) => {
+    const strongArtVerb = /generat|draw|illustrat|paint|render|visuali|sketch/i.test(t);
+    const weakArtVerb = /mak[ei]|creat/i.test(t);
+    const broadArtNoun = /page|scene|spread|cover|background|setting|image|picture|illustrat|art\b|drawing/i.test(t);
+    const explicitArtNoun = /image|picture|illustrat|art\b|drawing/i.test(t);
+    return (strongArtVerb && broadArtNoun) || (weakArtVerb && explicitArtNoun);
+  };
 
   const send = async () => {
     const text = input.trim(); if (!text || busy) return;
