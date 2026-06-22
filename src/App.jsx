@@ -3253,8 +3253,30 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         const namedPages = parseNamedPages(text);
         const isMultiPageReq = namedPages.length >= 2;
 
-        // Detect image generation requests — stem-based so typos like "illiatrate" still match
-        const isImageReq = !isMultiPageReq && /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(text)
+        // Detect a raw, undeveloped book idea purely by its content (feeling, family
+        // situation, trauma/survivor parenting scenario, or rough-concept title) — computed
+        // up front, before isImageReq, so a discovery message that happens to contain a
+        // creation verb ("create", "make") alongside "book"/"picture" doesn't get hijacked
+        // by the image-request branch and routed to the "tell me the idea" gate message —
+        // even though the user just gave the idea. Bug reported: Amora replied asking for
+        // the idea again after the author had already provided it. Fix: detect idea content
+        // first, and have isImageReq stand down when it's present.
+        const rawIdeaContentMatch = !book.bibleLocked && text.trim().length > 12 && (
+          /\b(book idea|story idea|idea for a book|want(s)? to write a book|want(s)? to make a book|thinking about a book|working title|book about|story about|a book where|a story where)\b/i.test(text)
+          || /\b(my (son|daughter|child|kid|kids)|survivor|trauma|traumatic|abuse|abusive|divorce|divorced|separation|deployment|deployed|foster care|adopt(ed|ion)?|grief|grieving|lost (her|his|my) (mom|dad|mother|father|parent)|passed away|\bdied\b|diagnosis|diagnosed|cancer|hospital|illness|anxiety|nightmares?|scared of|afraid of|bully|bullying|bullied|custody|new baby|new sibling|moving away)\b/i.test(text)
+          // Catch a structured-but-not-yet-built concept brief — age range + page count +
+          // an emotional/educational goal — even when it doesn't use a trauma keyword or the
+          // literal phrase "book idea." This is the exact shape of brief an author pastes in
+          // on the very first message (e.g. "A 24-page picture book for ages 4-8... the child
+          // feels calmer, safer, and more connected"), which previously fell through to either
+          // the image-request gate or the generic chat branch instead of starting discovery.
+          || (/\bbook\b/i.test(text) && /\bages?\s*\d|\d+\s*[-–]?\s*page/i.test(text) && /safe|calm|connect|feel|teach|learn|understand|cope|process|confus|unfair|grown-?up words/i.test(text))
+        );
+
+        // Detect image generation requests — stem-based so typos like "illiatrate" still match.
+        // Excludes rawIdeaContentMatch so a fresh raw-idea message isn't misread as an image
+        // request just because it mentions "picture book" or uses a creation verb.
+        const isImageReq = !isMultiPageReq && !rawIdeaContentMatch && /generat|draw|creat|mak[ei]|illustrat|paint|render|visuali|sketch/i.test(text)
           && /page|scene|spread|cover|illustrat|image|picture|background|setting/i.test(text);
 
         // Within an image request, "do the whole book" reads very differently from "draw me
@@ -3299,13 +3321,9 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         // style yet. Discovery is allowed before the bible is locked — Amora drafts a real
         // structured starter package instead of reflecting the idea back or pointing to a
         // blank Characters tab. "Amora is not a mirror. Amora is a maker."
-        const isRawBookIdea = !isMultiPageReq && !isImageReq && !isSaveBible && !isBuildBible
-          && !isLockBible && !isSyncCharsFromPages && !isStatusReq && !book.bibleLocked
-          && text.trim().length > 12
-          && (
-            /\b(book idea|story idea|idea for a book|want(s)? to write a book|want(s)? to make a book|thinking about a book|working title|book about|story about|a book where|a story where)\b/i.test(text)
-            || /\b(my (son|daughter|child|kid|kids)|survivor|trauma|traumatic|abuse|abusive|divorce|divorced|separation|deployment|deployed|foster care|adopt(ed|ion)?|grief|grieving|lost (her|his|my) (mom|dad|mother|father|parent)|passed away|\bdied\b|diagnosis|diagnosed|cancer|hospital|illness|anxiety|nightmares?|scared of|afraid of|bully|bullying|bullied|custody|new baby|new sibling|moving away)\b/i.test(text)
-          );
+        const isRawBookIdea = !isMultiPageReq && !isSaveBible && !isBuildBible
+          && !isLockBible && !isSyncCharsFromPages && !isStatusReq
+          && rawIdeaContentMatch;
 
         // Detect a full manuscript paste — multiple distinct lines/paragraphs handed over at
         // once with no other matched intent. Previously this fell straight into the generic
