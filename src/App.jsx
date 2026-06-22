@@ -2479,15 +2479,43 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
     }
   }, [loaded, skey]);
 
-  useEffect(() => {
-    if (!loaded) return;
-    const t = setTimeout(async () => {
+  // A ref keeps the latest data/skey/loaded in sync on every render (refs survive into
+  // the unmount cleanup and into chained saves below; state captured by an older effect
+  // closure does not).
+  const latestSaveRef = useRef({ skey, data, loaded });
+  useEffect(() => { latestSaveRef.current = { skey, data, loaded }; }, [skey, data, loaded]);
+
+  // Guards against concurrent overlapping upserts to the same row. The debounce timer
+  // below only blocks a save that hasn't fired YET (clearTimeout on a pending timer) —
+  // once a save's fetch is actually in flight, a later data change starts a SECOND
+  // upsert to the same Supabase row before the first one has committed. For small rows
+  // this is harmless; for a row with several MB of accumulated chat/art data, each
+  // upsert takes long enough that bursts of edits (e.g. a streaming Amora reply) can
+  // stack up many concurrent requests, all serializing on the same row-level lock —
+  // and the ones queued far enough back exceed Postgres's statement_timeout and come
+  // back as HTTP 500, even though any single save is fast in isolation. Forcing saves
+  // to run one-at-a-time (queueing at most one "there's newer data, save again when
+  // this one finishes" flag) eliminates the pile-up without changing what gets saved.
+  const saveInFlightRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const flushSave = async () => {
+    if (saveInFlightRef.current) { pendingSaveRef.current = true; return; }
+    saveInFlightRef.current = true;
+    do {
+      pendingSaveRef.current = false;
+      const { skey: k, data: d } = latestSaveRef.current;
       try {
-        await supabase.from("studio_data").upsert({ id: skey, data, updated_at: new Date().toISOString() });
+        await supabase.from("studio_data").upsert({ id: k, data: d, updated_at: new Date().toISOString() });
         setSavedFlash(true);
         setTimeout(() => setSavedFlash(false), 2000);
       } catch (e) { /* non-fatal */ }
-    }, 700);
+    } while (pendingSaveRef.current);
+    saveInFlightRef.current = false;
+  };
+
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => { flushSave(); }, 700);
     return () => clearTimeout(t);
   }, [data, loaded]);
 
@@ -2498,13 +2526,8 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
   // 700ms of an edit (e.g. uploading a cover, then immediately clicking over to the
   // shop to check it) unmounts KirbyStudio, cancels the pending save, and the edit is
   // gone for good with zero warning. This is exactly what happened to a cover upload.
-  // A ref keeps the latest data/skey/loaded in sync on every render (refs survive into
-  // the unmount cleanup; state captured by the effect above does not), so the one-time
-  // cleanup below can fire a final save with whatever was last on screen. It's a fire-
-  // and-forget request — the component is gone so nothing can await it or update
-  // state — but the underlying fetch keeps running after React unmounts.
-  const latestSaveRef = useRef({ skey, data, loaded });
-  useEffect(() => { latestSaveRef.current = { skey, data, loaded }; }, [skey, data, loaded]);
+  // It's a fire-and-forget request — the component is gone so nothing can await it or
+  // update state — but the underlying fetch keeps running after React unmounts.
   useEffect(() => {
     return () => {
       const { skey: k, data: d, loaded: l } = latestSaveRef.current;
