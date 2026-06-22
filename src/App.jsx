@@ -2109,6 +2109,192 @@ function buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pa
   ].join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// Shared image-generation core (refactor, see Amora_Architecture_Report.md §12)
+//
+// Every painting path in the app — the single-page button, "approve script & paint
+// all," and every Amora-chat painting branch — now goes through this ONE function
+// instead of each call site building its own /api/image payload by hand. Before this,
+// the three chat branches duplicated paintPage's logic inline and never passed loraUrl
+// or referenceImageUrl, so chat-painted pages were silently less visually-consistent
+// than button-painted ones. That gap is closed by having exactly one place that decides
+// the consistency payload (style guide, character manifest, seed, LoRA, reference image).
+// ---------------------------------------------------------------------------
+
+// Fix 5 — lightweight, best-effort log of every paid image-generation call (attempted or
+// blocked), so "how many calls did this book actually cost, and were any unconfirmed
+// batches blocked" becomes answerable after the fact. Mirrors the existing amora_memory
+// upsert pattern: wrapped in try/catch, never throws, never blocks or fails a paint. The
+// table (image_generation_events) is defined in supabase-schema.sql — if it hasn't been
+// created in the live database yet this silently no-ops, exactly like amora_memory did
+// before its own table existed.
+async function logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed, referenceImageUsed, usedOwnPageAsReference, status, error, authorEmail }) {
+  try {
+    await supabase.from("image_generation_events").insert({
+      author_email: authorEmail || null,
+      book_id: (book && book.id) || null,
+      page_id: (page && page.id) || null,
+      source: source || "unknown",
+      confirmed_by_user: !!confirmedByUser,
+      is_batch: !!isBatch,
+      lora_used: !!loraUsed,
+      reference_image_used: !!referenceImageUsed,
+      used_own_page_as_reference: !!usedOwnPageAsReference,
+      status: status || "unknown",
+      error: error ? String(error).slice(0, 500) : null,
+      created_at: new Date().toISOString(),
+    });
+  } catch (_e) { /* best-effort only — logging must never block or break painting */ }
+}
+
+// Fix 2 guardrail — hard stop for any code path that tries to paint more than one page
+// without the author explicitly confirming first. Used at the top of every batch-paint
+// loop (chat-confirmed batch, "approve script & paint all"). Throws rather than silently
+// no-opping so a future call site that forgets to gate its batch fails loudly instead of
+// quietly reintroducing unconfirmed batch painting.
+function assertBatchPaintConfirmed({ pageIds, confirmedByUser, source }) {
+  if (pageIds && pageIds.length > 1 && !confirmedByUser) {
+    throw new Error(`Blocked unconfirmed batch paint from ${source || "unknown"}`);
+  }
+}
+
+// The one shared painting function. Builds the exact same consistency payload every
+// time (style guide + character manifest + seed + LoRA-or-reference-image + locked
+// negative prompt) and is the only thing in the app that calls /api/image to paint a
+// story page. Returns { ok, url, error } and never throws for ordinary failures — it
+// only throws for the two intentional guardrails (unconfirmed batch, unconfirmed
+// finished-art overwrite), which callers are expected to have already checked before
+// reaching here.
+//
+//   book, setBook   — same shape used everywhere else in the app.
+//   collection      — the book's Character Collection, or null.
+//   page            — { id, text, img, finishedArt }. id may be null for a one-off
+//                      image that hasn't been placed on a page yet (Amora chat's
+//                      "just show me an image" case) — pass applyToBookPages: false
+//                      in that case so this function doesn't try to patch book.pages.
+//   pageIndex       — used only for the prompt's "page N of a series" line.
+//   feedback        — optional revision note from the author. Only treated as a
+//                      revision (vs. a first-time request) when page.img already exists.
+//   allowOverwriteFinishedArt — must be explicitly true to repaint a page flagged
+//                      finishedArt (Fix 4). Defaults to false — i.e. blocked by default.
+//   applyToBookPages — when true (default) and page.id exists, writes the result
+//                      straight into book.pages. Set false for not-yet-placed images.
+//   source          — "book_editor" | "amora_chat" | "page_chat" — for logging only.
+//   confirmedByUser — must be true for any call where isBatch is true (see
+//                      assertBatchPaintConfirmed). Single-page calls default to true
+//                      because clicking "generate image" or sending one chat request
+//                      IS the confirmation for that one image.
+//   isBatch         — true when this call is part of a multi-page loop.
+async function paintPageWithConsistency({
+  book, setBook, collection, page, pageIndex,
+  feedback,
+  allowOverwriteFinishedArt = false,
+  applyToBookPages = true,
+  source = "unknown",
+  confirmedByUser = true,
+  isBatch = false,
+  authorEmail,
+}) {
+  // Fix 4 — a page flagged finishedArt is real, uploaded, final author art. Nothing may
+  // overwrite it without an explicit, separate confirmation from the author.
+  if (page && page.finishedArt && !allowOverwriteFinishedArt) {
+    const error = "This page is marked as finished art. Explicit overwrite confirmation is required before it can be repainted.";
+    await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, status: "blocked_finished_art", error, authorEmail });
+    return { ok: false, error, blocked: "finished_art" };
+  }
+  // Fix 2 — defense in depth: even if a caller's own batch loop forgot to check, no
+  // individual call inside a batch of 2+ may proceed without confirmation.
+  if (isBatch && !confirmedByUser) {
+    const error = `Blocked unconfirmed batch paint from ${source}`;
+    await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, status: "blocked_unconfirmed", error, authorEmail });
+    throw new Error(error);
+  }
+  if (!page || !page.text || !page.text.trim()) {
+    return { ok: false, error: "Add this page's text first — Amora needs words to paint from." };
+  }
+
+  try {
+    const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
+    const charManifest = activeChars.length
+      ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+      : "(no named characters — environment/setting only)";
+    let seed = collection ? collection.seed : book.seed;
+    if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
+    let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
+    const otherPageImgs = book.pages.filter((pg) => pg.img && pg.id !== page.id).map((pg) => pg.img).slice(0, 3);
+    if (!book.derivedStyle && otherPageImgs.length) {
+      const derived = await deriveStyleFromImages(otherPageImgs);
+      if (derived) { styleGuide = derived; setBook((b) => ({ ...b, derivedStyle: derived })); }
+    }
+
+    // Only treat feedback as a revision note if there's already an image to revise —
+    // otherwise it's just the first-time request and the page text speaks for itself.
+    // A revision further splits into "minor edit" (fix one detail, anchor hard to the
+    // current image) vs "full repaint" (new setting/scene entirely — author explicitly
+    // asked to start over). Locked style/characters apply to both; only the anchor
+    // strength and whether the old image is shown to the model differ.
+    const isFullRepaintReq = Boolean(feedback) && /\b(change the setting|new setting|different setting|replace the (whole )?scene|completely new|brand new (image|scene|picture)|start over|whole new scene|repaint (the )?(whole|entire) page|totally different)\b/i.test(feedback);
+    const isRevision = Boolean(feedback) && Boolean(page.img) && !isFullRepaintReq;
+    const sceneText = (isRevision || isFullRepaintReq)
+      ? `${page.text}\n\nRevision note from the author — apply this exact change: ${feedback}`
+      : page.text;
+    const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum: (pageIndex || 0) + 1 });
+
+    // A trained style LoRA takes priority over any reference image — it locks style and
+    // identity at the model level instead of fighting a single image-to-image strength dial.
+    const loraUrl = collection && collection.loraStatus === "ready" ? collection.loraUrl : null;
+
+    // Fix 3 — anchor revisions to the page's OWN current image when one exists, instead
+    // of a different page's image. Previously this always borrowed another already-
+    // painted page and excluded the page being revised entirely, which is the literal
+    // reason "fix one small detail" requests could come back as a different scene
+    // altogether — the model had never been shown the picture being revised. Only
+    // applies when there's no LoRA (a LoRA already anchors identity/style on its own).
+    let referenceImageUrl = null;
+    let usedOwnPageAsReference = false;
+    if (!loraUrl) {
+      if (isRevision && page.img) {
+        referenceImageUrl = page.img;
+        usedOwnPageAsReference = true;
+      } else {
+        referenceImageUrl = otherPageImgs[0] || null;
+      }
+    }
+
+    // Minor edits anchor hard to the page's own current image (low strength — change as
+    // little as possible beyond the requested fix). Full repaints and first-time paints
+    // use the default strength so the model has room to actually generate a new scene.
+    const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq ? 0.32 : undefined;
+
+    const imgRes = await fetch("/api/image", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd",
+        ...(loraUrl ? { loraUrl } : referenceImageUrl ? { referenceImageUrl, ...(strength != null ? { strength } : {}) } : {}),
+      }),
+    });
+    const imgData = await imgRes.json();
+    if (imgData.error) {
+      await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, status: "failed", error: imgData.error, authorEmail });
+      return { ok: false, error: imgData.error };
+    }
+    if (applyToBookPages && page.id) {
+      // Painting success is also the single source of truth for this page'''s art-status
+      // fields, so the page list / status panel stay accurate no matter which path
+      // (button or chat) just painted it.
+      setBook((b) => ({ ...b, pages: b.pages.map((pg) => (pg.id === page.id ? {
+        ...pg, img: imgData.url, artStatus: "painted", imageDirty: false,
+        lastUpdatedBy: source, lastUpdatedAt: new Date().toISOString(),
+      } : pg)) }));
+    }
+    await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, status: "success", authorEmail });
+    return { ok: true, url: imgData.url, usedOwnPageAsReference, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl };
+  } catch (e) {
+    await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, status: "error", error: (e && e.message) || "unknown", authorEmail });
+    return { ok: false, error: "Image generation failed — try again." };
+  }
+}
+
 // Detects an author message that hands over literal, pre-written text for two or more
 // specifically-numbered pages at once (e.g. "Page 22 ... Page 23 ... Page 24 ...").
 // Returns [{num, text}] in the order they appeared, or [] if fewer than 2 are found.
@@ -2784,7 +2970,7 @@ function KirbyStudio({ go, onSignOut, account, homeSignal, studioKey }) {
 
   /* ---------------- BOOK EDITOR ---------------- */
   const editorColl = collections.find((c) => c.id === book?.collectionId) || null;
-  return <BookEditor book={book} setBook={setBook} collection={editorColl} onBack={() => setView("list")} onSignOut={onSignOut} onAmora={() => setView("build")} onPublish={() => setView("publish")} savedFlash={savedFlash} />;
+  return <BookEditor book={book} setBook={setBook} collection={editorColl} onBack={() => setView("list")} onSignOut={onSignOut} onAmora={() => setView("build")} onPublish={() => setView("publish")} savedFlash={savedFlash} authorEmail={account?.email} />;
 }
 
 /* ---------------- Amora guided build ---------------- */
@@ -2802,7 +2988,14 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
   // Keep the conversation saved on the book itself — so it survives switching screens and comes back next session.
   useEffect(() => { setBook((b) => ({ ...b, amoraChat: msgs })); }, [msgs]);
 
-  const push = (role, text) => setMsgs((m) => [...m, { role, text }]);
+  const push = (role, text, extra) => setMsgs((m) => [...m, { role, text, ...(extra || {}) }]);
+
+  // Fix 2 — generating art is paid and creative; it must require explicit confirmation
+  // before painting 2+ pages, even when bibleLocked/scriptApproved are both already true.
+  // Those flags are preconditions for painting at all, not standing consent for every
+  // future batch. When a chat message would paint 2+ pages, a pendingPaintRequest is
+  // created instead of painting immediately, and the chat shows real action buttons.
+  const [pendingPaintRequest, setPendingPaintRequest] = useState(null);
 
   // Amora's continuous memory of this author — loaded once per session, updated quietly
   // after each real exchange so she keeps getting to know the author over time.
@@ -2840,6 +3033,48 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
     fr.readAsDataURL(file);
   };
 
+  // Fix 2 — runs ONLY after the author has explicitly clicked "Paint these pages now"
+  // (or typed the equivalent confirmation phrase). Every page in the request is painted
+  // through the same shared paintPageWithConsistency core BookEditor uses, so chat-painted
+  // pages get the identical loraUrl/referenceImageUrl/seed/style payload — no more silently
+  // weaker consistency for art painted from chat than art painted from the page editor.
+  const confirmPendingPaint = async () => {
+    const req = pendingPaintRequest;
+    if (!req || req.status !== "pending" || busy) return;
+    assertBatchPaintConfirmed({ pageIds: req.pageIds, confirmedByUser: true, source: "amora_chat" });
+    setPendingPaintRequest({ ...req, status: "confirmed" });
+    setBusy(true);
+    push("amora", `Painting ${req.pageIds.length} page${req.pageIds.length > 1 ? "s" : ""} now — this will take a moment…`);
+    if (!book.derivedStyle) {
+      const existingImgs = book.pages.filter((pg) => pg.img).map((pg) => pg.img).slice(0, 3);
+      if (existingImgs.length) push("amora", "Looking at your existing pages to lock in the visual style…");
+    }
+    const built = []; const failed = [];
+    for (let k = 0; k < req.pageIds.length; k++) {
+      const pid = req.pageIds[k];
+      const pIdx = book.pages.findIndex((pg) => pg.id === pid);
+      if (pIdx === -1) { failed.push(req.pageNumbers[k]); continue; }
+      const result = await paintPageWithConsistency({
+        book, setBook, collection, page: book.pages[pIdx], pageIndex: pIdx,
+        source: "amora_chat", confirmedByUser: true, isBatch: true, authorEmail,
+      });
+      if (result.ok) built.push(req.pageNumbers[k]); else failed.push(req.pageNumbers[k]);
+    }
+    setPendingPaintRequest((pr) => (pr && pr.id === req.id ? { ...pr, status: "completed" } : pr));
+    push("amora", built.length
+      ? `Done — page${built.length > 1 ? "s" : ""} ${built.join(", ")} ${built.length > 1 ? "are" : "is"} painted and matching the rest of the book.${failed.length ? ` Page${failed.length > 1 ? "s" : ""} ${failed.join(", ")} didn't generate — try regenerating from the page editor.` : ""}`
+      : `The art didn't generate for any of those pages just now — try again from the page editor.`);
+    setBusy(false);
+  };
+
+  // "Review first" / cancel — leaves the saved text exactly as it is, just doesn't spend
+  // any image credits yet. The author can always trigger painting later from the page
+  // editor's "Approve script & paint all pages" button, or by asking Amora again.
+  const dismissPendingPaint = (note) => {
+    setPendingPaintRequest((pr) => (pr ? { ...pr, status: "cancelled" } : pr));
+    push("amora", note || "No problem — take your time. Tell me to paint them whenever you're ready, or use \"Approve script & paint all pages\" in the Page Editor.");
+  };
+
   const send = async (override) => {
     const text = (override || input).trim();
     if ((!text && !chatImg) || busy) return;
@@ -2871,6 +3106,20 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         if (reply.toLowerCase().includes("character") || reply.toLowerCase().includes("mama") || reply.toLowerCase().includes("palette")) {
           push("amora", "Want me to save these characters to your book's Character Bible? Just say \"yes, save to my Character Bible\" and I'll add them.");
         }
+      } else if (pendingPaintRequest && pendingPaintRequest.status === "pending"
+        && /\b(paint (these |the |saved )?pages?( now)?|paint (it|them) now|yes,? paint|go ahead( and paint)?|paint now)\b/i.test(text)) {
+        // Fix 2 — the simplest-safe confirmation path: typing the equivalent of the button's
+        // own label also confirms, in case the chat UI's buttons aren't visible/usable.
+        setBusy(false);
+        await confirmPendingPaint();
+        return;
+
+      } else if (pendingPaintRequest && pendingPaintRequest.status === "pending"
+        && /\b(review first|not yet|hold off|wait|cancel)\b/i.test(text)) {
+        dismissPendingPaint();
+        setBusy(false);
+        return;
+
       } else {
         const convo = msgs.concat({ role: "user", text }).slice(-12)
           .map((m) => `${m.role === "amora" ? "Amora" : "Kirby"}: ${m.text}`).join("\n");
@@ -2916,12 +3165,17 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           && /match|update|sync|fix|correct|same as|reflect/i.test(text)
           && /image|picture|art|illustrat|page|drawing/i.test(text);
 
+        // Detect a plain status check — "where are we", "what's left", "book status" — so
+        // Amora can answer from the real book object instead of vibes/prose. Checked before
+        // isScriptPaste since a short status question is neither a script paste nor multi-line.
+        const isStatusReq = /\b(where are we|what's left|what is left|what still needs|book status|status update|status check|how's (the |my )?book|where (do |does )?(the |this )?book stand)\b/i.test(text);
+
         // Detect a full manuscript paste — multiple distinct lines/paragraphs handed over at
         // once with no other matched intent. Previously this fell straight into the generic
         // chit-chat branch, which could only react in prose and never actually saved a word
         // of it onto the book's pages — which read to the author as Amora ignoring the script.
         const isScriptPaste = !isMultiPageReq && !isImageReq && !isSaveBible && !isBuildBible
-          && !isLockBible && !isSyncCharsFromPages
+          && !isLockBible && !isSyncCharsFromPages && !isStatusReq
           && text.split(/\n+/).map((l) => l.trim()).filter(Boolean).length >= 2
           && text.length > 120;
 
@@ -2945,6 +3199,29 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             }
           }
 
+        } else if (isStatusReq) {
+          // Answers from the real book object only — no vibes, no "sounds good." This is
+          // the one place that reads every relevant field at once, so it's the cheapest way
+          // to sanity-check that the data model and the chat are actually in sync.
+          const painted = book.pages.filter((p) => p.img).length;
+          const finished = book.pages.filter((p) => p.finishedArt).length;
+          const needsReview = book.pages
+            .map((p, i) => ({ p, num: i + 1 }))
+            .filter(({ p }) => p.textStatus === "updated_needs_review" || p.imageDirty)
+            .map(({ num }) => num);
+          const empty = book.pages.filter((p) => p.text && p.text.trim() && !p.img && !p.finishedArt).length;
+          const charsOk2 = book.characters.length > 0 && book.characters.every((c) => c.name && c.name.trim() && c.desc && c.desc.trim());
+          const lines = [
+            `Book Bible: ${book.bibleLocked ? "locked" : charsOk2 ? "drafted, not locked yet" : "not started"}.`,
+            `Script: ${book.pages.length} page${book.pages.length === 1 ? "" : "s"}, ${book.scriptApproved ? "approved" : "not approved yet"}.`,
+            `Style guide: ${book.styleGuide || book.derivedStyle ? "set" : "not set yet"}.`,
+            `Art: ${painted} of ${book.pages.length} page${book.pages.length === 1 ? "" : "s"} painted${empty ? `, ${empty} with text but no art yet` : ""}.`,
+            finished ? `Finished uploaded art: ${finished} page${finished === 1 ? "" : "s"} — protected from chat overwrite.` : null,
+            needsReview.length ? `Needs your review (text changed since the art was made): page${needsReview.length > 1 ? "s" : ""} ${needsReview.join(", ")}.` : null,
+            pendingPaintRequest && pendingPaintRequest.status === "pending" ? `Waiting on you: a paint request for ${pendingPaintRequest.pageIds.length} page${pendingPaintRequest.pageIds.length > 1 ? "s" : ""} is pending — say "paint these pages now" or "review first."` : null,
+          ].filter(Boolean);
+          push("amora", `Here's where the book stands:\n${lines.map((l) => `— ${l}`).join("\n")}`);
+
         } else if (isLockBible) {
           const charsOk = book.characters.length > 0 && book.characters.every((c) => c.name && c.name.trim() && c.desc && c.desc.trim());
           const styleOk = !!(book.styleGuide && book.styleGuide.trim());
@@ -2967,57 +3244,50 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           // book immediately, no matter what the bible-lock/script-approval state is. Only
           // the actual painting step below is gated, so a script paste always gets acknowledged.
           let newPages = [...book.pages];
+          const touchedIds = [];
           for (const np of namedPages) {
             const idx = np.num - 1;
             while (newPages.length < idx) newPages.push({ id: newId(), text: "", img: "" });
-            newPages[idx] = { id: (newPages[idx] && newPages[idx].id) || newId(), text: np.text, img: (newPages[idx] && newPages[idx].img) || "" };
+            const prev = newPages[idx] || {};
+            const hadArt = !!prev.img;
+            newPages[idx] = {
+              ...prev,
+              id: prev.id || newId(),
+              text: np.text,
+              img: prev.img || "",
+              textStatus: "updated_needs_review",
+              artStatus: hadArt ? "needs_revision" : (prev.artStatus || "needs_paint"),
+              imageDirty: hadArt,
+              lastUpdatedBy: "amora_chat",
+              lastUpdatedAt: new Date().toISOString(),
+            };
+            touchedIds.push(newPages[idx].id);
           }
           setBook((b) => ({ ...b, pages: newPages }));
 
           if (!book.bibleLocked) {
-            push("amora", `Got it — I saved your text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the book. ${lockGateMsg}`);
+            push("amora", `Saved text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the page builder — open the Page Editor and you'll see it there now. ${lockGateMsg}`, { affectedPageIds: touchedIds });
           } else if (!book.scriptApproved) {
-            push("amora", `Got it — I saved your text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the book. ${scriptGateMsg}`);
+            push("amora", `Saved text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the page builder. ${scriptGateMsg}`, { affectedPageIds: touchedIds });
           } else {
-            const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-            let seed = collection ? collection.seed : book.seed;
-            if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
-            const charManifest = activeChars.length
-              ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
-              : "(no named characters — environment/setting only)";
-
-            const existingImgs = newPages.filter(p => p.img).map(p => p.img).slice(0, 3);
-            let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
-            if (!book.derivedStyle && existingImgs.length) {
-              push("amora", "Looking at your existing pages to lock in the visual style…");
-              const derived = await deriveStyleFromImages(existingImgs);
-              if (derived) { styleGuide = derived; setBook(b => ({ ...b, derivedStyle: derived })); }
-            }
-
-            push("amora", `Text saved — now painting page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} to match. This'll take a moment…`);
-
-            const built = [];
-            const failed = [];
-            for (const np of namedPages) {
-              try {
-                const idx = np.num - 1;
-                const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: np.text, pageNum: np.num });
-                const imgRes = await fetch("/api/image", {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
-                });
-                const imgData = await imgRes.json();
-                newPages[idx] = { ...newPages[idx], img: imgData.url || newPages[idx].img };
-                if (imgData.error) failed.push(np.num); else built.push(np.num);
-              } catch (e) {
-                failed.push(np.num);
-              }
-            }
-            setBook((b) => ({ ...b, pages: newPages }));
-            if (built.length) {
-              push("amora", `Done — page${built.length > 1 ? "s" : ""} ${built.join(", ")} ${built.length > 1 ? "are" : "is"} in the book with text and matching art locked in.${failed.length ? ` Page${failed.length > 1 ? "s" : ""} ${failed.join(", ")} saved with text but the art didn't generate — try regenerating ${failed.length > 1 ? "those" : "that one"} from the page editor.` : ""} Take a look in the page editor, and tell me if anything needs a touch-up.`);
+            // Fix 2 — text is saved either way, but painting 2+ pages is paid and creative, so it
+            // needs the author's explicit go-ahead even though the bible/script gates are open.
+            // Pages already flagged finishedArt are real uploaded art and are never auto-queued.
+            const eligible = namedPages.filter((np) => !(newPages[np.num - 1] && newPages[np.num - 1].finishedArt));
+            const skippedFinished = namedPages.filter((np) => newPages[np.num - 1] && newPages[np.num - 1].finishedArt).map((np) => np.num);
+            if (!eligible.length) {
+              push("amora", `Saved text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the page builder — but ${namedPages.length > 1 ? "all of those are" : "that one is"} marked as finished, uploaded art, so I won't repaint over it. Say so explicitly if you want me to replace it.`, { affectedPageIds: touchedIds });
             } else {
-              push("amora", `The text is saved, but the art didn't generate for any of those pages just now — try again from the page editor.`);
+              const req = {
+                id: newId(), source: "amora_chat", type: "batch_pages",
+                pageIds: eligible.map((np) => newPages[np.num - 1].id),
+                pageNumbers: eligible.map((np) => np.num),
+                estimatedImageCalls: eligible.length,
+                createdAt: new Date().toISOString(), status: "pending",
+              };
+              setPendingPaintRequest(req);
+              push("amora", `I saved text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the page builder.${skippedFinished.length ? ` (Skipping page${skippedFinished.length > 1 ? "s" : ""} ${skippedFinished.join(", ")} — marked as finished art.)` : ""} That's ${eligible.length} page${eligible.length > 1 ? "s" : ""} of new artwork, which spends image credits — I won't generate it until you say go. Review the pages first, or tell me to paint these pages now.`,
+                { pendingPaintId: req.id, affectedPageIds: touchedIds });
             }
           }
 
@@ -3032,37 +3302,21 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             : "I don't have any page text yet to paint from — write out your pages (or paste the full script here) so I have real words to match the art to, then tell me to approve and paint.");
 
         } else if (isWholeBookImageReq) {
-          const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-          let seed = collection ? collection.seed : book.seed;
-            if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
-          const charManifest = activeChars.length
-            ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
-            : "(no named characters — environment/setting only)";
-          let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
-
-          const targets = book.pages.map((p, i) => ({ p, i })).filter(({ p }) => p.text && p.text.trim() && !p.img);
+          // Fix 2 — same reasoning as isMultiPageReq: propose, don't auto-paint.
+          const targets = book.pages.map((p, i) => ({ p, i })).filter(({ p }) => p.text && p.text.trim() && !p.img && !p.finishedArt);
           if (!targets.length) {
             push("amora", "Every page with real text already has art, or there's no page text yet to paint from — add or change some page text and ask me again.");
           } else {
-            push("amora", `On it — painting ${targets.length} page${targets.length > 1 ? "s" : ""} from the actual text already in the book…`);
-            let newPages = [...book.pages];
-            const built = []; const failed = [];
-            for (const { p, i } of targets) {
-              try {
-                const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText: p.text, pageNum: i + 1 });
-                const imgRes = await fetch("/api/image", {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
-                });
-                const imgData = await imgRes.json();
-                newPages[i] = { ...newPages[i], img: imgData.url || newPages[i].img };
-                if (imgData.error) failed.push(i + 1); else built.push(i + 1);
-              } catch (e) { failed.push(i + 1); }
-            }
-            setBook((b) => ({ ...b, pages: newPages }));
-            push("amora", built.length
-              ? `Done — painted page${built.length > 1 ? "s" : ""} ${built.join(", ")} straight from your real text.${failed.length ? ` Page${failed.length > 1 ? "s" : ""} ${failed.join(", ")} didn't generate — try regenerating from the page editor.` : ""}`
-              : `The art didn't generate for any of those pages just now — give it another try.`);
+            const req = {
+              id: newId(), source: "amora_chat", type: "whole_book",
+              pageIds: targets.map(({ p }) => p.id),
+              pageNumbers: targets.map(({ i }) => i + 1),
+              estimatedImageCalls: targets.length,
+              createdAt: new Date().toISOString(), status: "pending",
+            };
+            setPendingPaintRequest(req);
+            push("amora", `I found ${targets.length} page${targets.length > 1 ? "s" : ""} with text but no art yet (page${targets.length > 1 ? "s" : ""} ${req.pageNumbers.join(", ")}). Painting all of them is ${targets.length} image credit${targets.length > 1 ? "s" : ""} — real money, so I'll wait for your go-ahead. Review first, or tell me to paint these pages now.`,
+              { pendingPaintId: req.id });
           }
 
         } else if (isImageReq && !book.bibleLocked) {
@@ -3072,61 +3326,60 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           push("amora", scriptGateMsg);
 
         } else if (isImageReq) {
-          const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-          let seed = collection ? collection.seed : book.seed;
-            if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
-          const charManifest = activeChars.length
-            ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
-            : "(no named characters — environment/setting only)";
-
-          // Look at pages already in the book (uploaded or previously generated) to derive
-          // the true visual style — text descriptions alone can't guarantee page-to-page consistency.
-          const existingImgs = book.pages.filter(p => p.img).map(p => p.img).slice(0, 3);
-          let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
-          if (!book.derivedStyle && existingImgs.length) {
-            push("amora", "Looking at your existing pages to lock in the visual style…");
-            const derived = await deriveStyleFromImages(existingImgs);
-            if (derived) { styleGuide = derived; setBook(b => ({ ...b, derivedStyle: derived })); }
-          }
-
-          // If this request names a specific page that already has real text written for it,
-          // ground the art in that exact text instead of inventing a scene from the short chat
-          // request alone — otherwise the image stops matching the actual story.
+          // A single image is one explicit ask in one message — no separate batch confirmation
+          // needed (Fix 2 only gates 2+ pages), but it still goes through the same shared
+          // paintPageWithConsistency core as every other path, so it gets the identical
+          // loraUrl/referenceImageUrl/seed/style payload a button-painted page would get.
           const pageNumMatch = text.match(/page\s+(\d+)/i);
           const namedPage = pageNumMatch ? book.pages[parseInt(pageNumMatch[1], 10) - 1] : null;
 
-          push("amora", "On it — building that image now…");
-
-          let sceneText = text;
-          if (namedPage && namedPage.text && namedPage.text.trim()) {
-            sceneText = namedPage.text;
+          if (namedPage && namedPage.finishedArt && !/\b(replace|overwrite|redo|regenerate|repaint)\b/i.test(text)) {
+            push("amora", `Page ${pageNumMatch[1]} is marked as finished, uploaded art, so I won't repaint over it from chat. Say "regenerate page ${pageNumMatch[1]}'s finished art" if you really do want to replace it.`);
           } else {
-            // Step 1: Ask Amora ONLY for the scene description.
-            const sceneRaw = await amora(
-              `The author wants to generate a picture-book illustration.\n\nCharacter Bible (already locked into the image — do NOT re-describe, just use names):\n${charManifest}\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}`,
-              AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 400
-            );
-            let sceneMeta = { scene: text };
-            try { sceneMeta = parseLoose(sceneRaw); } catch (_) { /* use defaults */ }
-            sceneText = sceneMeta.scene || text;
-          }
+            push("amora", "On it — building that image now…");
 
-          const pageNum = namedPage ? (parseInt(pageNumMatch[1], 10)) : book.pages.length + 1;
-          const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum });
+            const charManifestForScene = ((collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [])
+              .map((c) => `— ${c.name}: ${c.desc}`).join("\n") || "(no named characters — environment/setting only)";
 
-          const imgRes = await fetch("/api/image", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
-          });
-          const imgData = await imgRes.json();
-          if (imgData.error) {
-            push("amora", `I couldn't generate that image just now — ${imgData.error}. Check that FAL_API_KEY or OPENAI_API_KEY is set in your Vercel environment variables.`);
-          } else if (namedPage) {
-            const idx = parseInt(pageNumMatch[1], 10) - 1;
-            setBook((b) => { const ps = [...b.pages]; ps[idx] = { ...ps[idx], img: imgData.url }; return { ...b, pages: ps }; });
-            push("amora", `Done — page ${pageNumMatch[1]}'s art now matches its actual text. Take a look in the page editor.`);
-          } else {
-            setMsgs((m) => [...m, { role: "amora", text: "Here it is ❖ Click “Add to book” to place it on a page.", imgUrl: imgData.url, model: imgData.model }]);
+            let sceneText = text;
+            if (namedPage && namedPage.text && namedPage.text.trim()) {
+              sceneText = namedPage.text;
+            } else {
+              // Step 1: Ask Amora ONLY for the scene description.
+              const sceneRaw = await amora(
+                `The author wants to generate a picture-book illustration.\n\nCharacter Bible (already locked into the image — do NOT re-describe, just use names):\n${charManifestForScene}\n\nRequest: "${text}"\n\nReturn ONLY JSON:\n{"scene":"A 2-3 sentence description of ONLY the scene action, setting, camera angle, lighting, and mood for this specific page. Do NOT re-describe characters — their appearance is locked separately. Be specific about what is happening and where."}`,
+                AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 400
+              );
+              let sceneMeta = { scene: text };
+              try { sceneMeta = parseLoose(sceneRaw); } catch (_) { /* use defaults */ }
+              sceneText = sceneMeta.scene || text;
+            }
+
+            if (namedPage) {
+              const idx = parseInt(pageNumMatch[1], 10) - 1;
+              const result = await paintPageWithConsistency({
+                book, setBook, collection, page: { ...namedPage, text: sceneText }, pageIndex: idx,
+                allowOverwriteFinishedArt: !!namedPage.finishedArt,
+                source: "amora_chat", confirmedByUser: true, isBatch: false, authorEmail,
+              });
+              if (!result.ok) {
+                push("amora", `I couldn't generate that image just now — ${result.error}.`);
+              } else {
+                push("amora", `Done — page ${pageNumMatch[1]}'s art now matches its actual text, painted with the same style/character/LoRA settings as everything else in the book. Take a look in the page editor.`, { affectedPageIds: [namedPage.id].filter(Boolean) });
+              }
+            } else {
+              const pseudoPage = { id: null, text: sceneText, img: null, finishedArt: false };
+              const result = await paintPageWithConsistency({
+                book, setBook, collection, page: pseudoPage, pageIndex: book.pages.length,
+                applyToBookPages: false,
+                source: "amora_chat", confirmedByUser: true, isBatch: false, authorEmail,
+              });
+              if (!result.ok) {
+                push("amora", `I couldn't generate that image just now — ${result.error}. Check that FAL_API_KEY is set in your Vercel environment variables.`);
+              } else {
+                setMsgs((m) => [...m, { role: "amora", text: "Here it is ❖ Click “Add to book” to place it on a page.", imgUrl: result.url }]);
+              }
+            }
           }
 
         } else if (isSaveBible) {
@@ -3184,11 +3437,21 @@ Return ONLY JSON: {"characters":[{"name":"...","desc":"full visual + emotional d
             const pageTexts = Array.isArray(draft.pages) ? draft.pages.filter((t) => typeof t === "string" && t.trim()) : [];
             if (pageTexts.length) {
               setBook((b) => {
-                const newPages = pageTexts.map((t, i) => ({
-                  id: (b.pages[i] && b.pages[i].id) || newId(),
-                  text: t,
-                  img: (b.pages[i] && b.pages[i].img) || "",
-                }));
+                const newPages = pageTexts.map((t, i) => {
+                  const prev = b.pages[i] || {};
+                  const hadArt = !!prev.img;
+                  return {
+                    ...prev,
+                    id: prev.id || newId(),
+                    text: t,
+                    img: prev.img || "",
+                    textStatus: "draft",
+                    artStatus: hadArt ? "needs_revision" : (prev.artStatus || "needs_paint"),
+                    imageDirty: hadArt,
+                    lastUpdatedBy: "amora_chat",
+                    lastUpdatedAt: new Date().toISOString(),
+                  };
+                });
                 return { ...b, pages: newPages, scriptApproved: false };
               });
               push("amora", `Saved — that's ${pageTexts.length} page${pageTexts.length > 1 ? "s" : ""} of real text in the Page Editor now, exactly as you wrote it. Take a look, and once it's right, lock your Character Bible (if you haven't) and use "Approve script & paint all pages" so the art matches every word.`);
@@ -3427,6 +3690,13 @@ CRITICAL: You have NOT locked, saved, added, or generated anything by writing th
                   </div>
                 ) : null}
                 {m.text ? m.text.split("\n").map((l, j) => (l ? <p key={j}>{l}</p> : <br key={j} />)) : null}
+                {m.pendingPaintId && pendingPaintRequest && pendingPaintRequest.id === m.pendingPaintId && pendingPaintRequest.status === "pending" ? (
+                  <div className="gen-img-actions" style={{ marginTop: 8 }}>
+                    <button className="btn-gold" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={confirmPendingPaint}>Paint these pages now</button>
+                    <button className="btn-line dark" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={() => dismissPendingPaint()}>Review first</button>
+                    <button className="btn-line dark" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={() => dismissPendingPaint("No problem — cancelled. Nothing was painted.")}>Cancel</button>
+                  </div>
+                ) : null}
               </div>
             ))}
             {busy ? <div className="abubble amora"><span className="amora-name"><MoonMark size={15} /> Amora</span><p className="typing">creating your book<i>.</i><i>.</i><i>.</i></p></div> : null}
@@ -3538,7 +3808,7 @@ function resizeImageFile(file, max = 1400) {
   });
 }
 
-function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onPublish, savedFlash }) {
+function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onPublish, savedFlash, authorEmail }) {
   const [tab, setTab] = useState("pages");
   const [report, setReport] = useState(null);
   const [checking, setChecking] = useState(false);
@@ -3594,16 +3864,18 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
         setPgImgErr((prev) => ({ ...prev, [p.id]: "Couldn't read that image — try a smaller file or a different format." }));
         return;
       }
-      setPage(p.id, { img: dataUrl });
+      setPage(p.id, { img: dataUrl, artStatus: "painted", imageDirty: false, lastUpdatedBy: "upload", lastUpdatedAt: new Date().toISOString() });
     } finally {
       setPgUploadBusy((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
     }
   };
 
-  // Generates (or regenerates, with optional author feedback) the illustration for ONE page,
-  // referencing the Character Bible and every other image already in the book for consistency.
+  // Generates (or regenerates, with optional author feedback) the illustration for ONE page.
+  // All the actual consistency logic (style guide, character manifest, seed, LoRA/reference
+  // image, finished-art guard) now lives in the shared paintPageWithConsistency function —
+  // this is a thin wrapper that owns this component's busy/error UI state around it.
   // Returns true/false for real — callers must never report success unless this actually returns true.
-  const paintPage = async (p, i, feedback) => {
+  const paintPage = async (p, i, feedback, opts = {}) => {
     if (pgImgBusy[p.id]) return false;
     if (!p.text || !p.text.trim()) {
       setPgImgErr((prev) => ({ ...prev, [p.id]: "Add this page's text first — Amora needs words to paint from." }));
@@ -3612,44 +3884,18 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
     setPgImgErr((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
     setPgImgBusy((prev) => ({ ...prev, [p.id]: true }));
     try {
-      const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-      const charManifest = activeChars.length
-        ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
-        : "(no named characters — environment/setting only)";
-      let seed = collection ? collection.seed : book.seed;
-            if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
-      let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
-      const existingImgs = book.pages.filter((pg) => pg.img && pg.id !== p.id).map((pg) => pg.img).slice(0, 3);
-      if (!book.derivedStyle && existingImgs.length) {
-        const derived = await deriveStyleFromImages(existingImgs);
-        if (derived) { styleGuide = derived; setBook((b) => ({ ...b, derivedStyle: derived })); }
-      }
-      // Only treat feedback as a revision note if there's already an image to revise —
-      // otherwise it's just the first-time request and the page text speaks for itself.
-      const sceneText = (feedback && p.img) ? `${p.text}\n\nRevision note from the author — apply this exact change: ${feedback}` : p.text;
-      const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum: i + 1 });
-      // Anchor to an existing page's actual painted image (not just a text style
-      // description) so background richness/texture/detail carries over instead
-      // of being re-described from scratch every time. Experimental — strength is
-      // tuned server-side, not assumed to be correct on the first try.
-      const referenceImageUrl = existingImgs[0];
-      // A trained style LoRA (collection.loraStatus === "ready") takes priority over the
-      // reference-image path: it decouples style from content at the model level instead
-      // of fighting the single strength dial, so it's used whenever it's available.
-      const loraUrl = collection && collection.loraStatus === "ready" ? collection.loraUrl : null;
-      const imgRes = await fetch("/api/image", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd",
-          ...(loraUrl ? { loraUrl } : referenceImageUrl ? { referenceImageUrl } : {}),
-        }),
+      const result = await paintPageWithConsistency({
+        book, setBook, collection, page: p, pageIndex: i, feedback,
+        allowOverwriteFinishedArt: !!opts.allowOverwriteFinishedArt,
+        source: opts.source || "book_editor",
+        confirmedByUser: opts.confirmedByUser !== undefined ? opts.confirmedByUser : true,
+        isBatch: !!opts.isBatch,
+        authorEmail,
       });
-      const imgData = await imgRes.json();
-      if (imgData.error) { setPgImgErr((prev) => ({ ...prev, [p.id]: imgData.error })); return false; }
-      setPage(p.id, { img: imgData.url });
+      if (!result.ok) { setPgImgErr((prev) => ({ ...prev, [p.id]: result.error || "Image generation failed — try again." })); return false; }
       return true;
     } catch (e) {
-      setPgImgErr((prev) => ({ ...prev, [p.id]: "Image generation failed — try again." }));
+      setPgImgErr((prev) => ({ ...prev, [p.id]: (e && e.message) || "Image generation failed — try again." }));
       return false;
     } finally {
       setPgImgBusy((prev) => { const n = { ...prev }; delete n[p.id]; return n; });
@@ -3658,7 +3904,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
 
   // Public, gated entry point — every page-painting call in the UI goes through this,
   // never paintPage directly, so the lock/approval workflow can't be bypassed.
-  const genPageImage = async (p, i, feedback) => {
+  const genPageImage = async (p, i, feedback, opts) => {
     if (!bibleLocked) {
       setPgImgErr((prev) => ({ ...prev, [p.id]: "Lock the Character Bible (Characters tab) before painting any pages." }));
       return false;
@@ -3667,13 +3913,16 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       setPgImgErr((prev) => ({ ...prev, [p.id]: "Finish and approve the full script first — use \"Approve script & paint all pages\" below." }));
       return false;
     }
-    return paintPage(p, i, feedback);
+    return paintPage(p, i, feedback, opts);
   };
 
   // Batch action: once every page has text and the author explicitly approves, paint
   // every page's art in one consistent pass — same Bible, same derived style, correct order.
+  // Clicking this button IS the explicit confirmation for this batch (Fix 2's guardrail
+  // exists for chat-triggered batches that have no equivalent deliberate click).
   const approveAndPaintAll = async () => {
     if (!bibleLocked || !hasScript || batchBusy) return;
+    assertBatchPaintConfirmed({ pageIds: book.pages.map((p) => p.id), confirmedByUser: true, source: "book_editor_approve_all" });
     setBatchBusy(true);
     setBook((b) => ({ ...b, scriptApproved: true }));
     setBatchNote(`Painting ${book.pages.length} pages…`);
@@ -3681,7 +3930,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
     for (let i = 0; i < book.pages.length; i++) {
       const p = book.pages[i];
       setBatchNote(`Painting page ${i + 1} of ${book.pages.length}…`);
-      const ok = await paintPage(p, i);
+      const ok = await paintPage(p, i, undefined, { isBatch: true, confirmedByUser: true, source: "book_editor_approve_all" });
       if (ok) done++; else failed++;
     }
     setBatchNote(`Done — ${done} page${done === 1 ? "" : "s"} painted${failed ? `, ${failed} need a retry from the page editor` : ""}.`);
@@ -3785,6 +4034,25 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
           <button className="studio-tab" style={{color:"#E2A857"}} onClick={onPublish}>Publishing ✦</button>
         </div>
 
+        {/* Status strip — same fields Amora's "where are we" answers from, so chat and the
+            page builder can never disagree about what's actually been done. This is a quick
+            glance, not the authoritative export check (Publishing's own Validation Report
+            owns that). */}
+        {(() => {
+          const painted = book.pages.filter((p) => p.img).length;
+          const finishedCount = book.pages.filter((p) => p.finishedArt).length;
+          const needsReviewCount = book.pages.filter((p) => p.textStatus === "updated_needs_review" || p.imageDirty).length;
+          return (
+            <div className="fine" style={{ display: "flex", flexWrap: "wrap", gap: 14, margin: "2px 0 16px", padding: "8px 0", borderTop: "1px solid #eee", borderBottom: "1px solid #eee" }}>
+              <span><strong>Bible:</strong> {bibleLocked ? "locked" : bibleReady ? "drafted, not locked" : "not started"}</span>
+              <span><strong>Script:</strong> {book.pages.length} page{book.pages.length === 1 ? "" : "s"}{scriptApproved ? ", approved" : ", not approved"}</span>
+              <span><strong>Art:</strong> {painted} of {book.pages.length} painted</span>
+              {finishedCount ? <span><strong>Finished uploads:</strong> {finishedCount}</span> : null}
+              {needsReviewCount ? <span style={{ color: "#9E4A44" }}><strong>Needs review:</strong> {needsReviewCount} page{needsReviewCount === 1 ? "" : "s"}</span> : null}
+            </div>
+          );
+        })()}
+
         {tab === "pages" ? (
           <div className="ed-grid">
             <div>
@@ -3810,14 +4078,31 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                   onDrop={() => onDrop(p.id)}>
                   <div className="ed-page-head">
                     <span className="drag-handle" title="Drag to reorder">⠿ Page {i + 1}</span>
-                    <span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {p.lastUpdatedBy === "amora_chat" && (p.textStatus === "updated_needs_review" || p.imageDirty) ? (
+                        <span className="fine" style={{ color: "#9E4A44" }} title="Amora updated this page's text from chat">Updated by Amora — needs review</span>
+                      ) : null}
                       {book.pages.length > 1 ? <button className="btn-text soft" onClick={() => removePage(p.id)}>remove</button> : null}
                     </span>
                   </div>
                   {p.img ? <img src={p.img} alt={"Page " + (i + 1)} className="ed-page-img" /> : null}
-                  <textarea rows={2} value={p.text} onChange={(e) => setPage(p.id, { text: e.target.value })} placeholder="Write this page, or build it with Amora below." />
+                  <textarea rows={2} value={p.text} onChange={(e) => setPage(p.id, {
+                    text: e.target.value, textStatus: "draft",
+                    artStatus: p.img ? "needs_revision" : (p.artStatus || "needs_paint"),
+                    imageDirty: !!p.img, lastUpdatedBy: "page_editor", lastUpdatedAt: new Date().toISOString(),
+                  })} placeholder="Write this page, or build it with Amora below." />
                   <div className="ed-page-imgrow">
-                    <button className="btn-text soft" disabled={!!pgImgBusy[p.id] || !bibleLocked || !scriptApproved} onClick={() => genPageImage(p, i)}>
+                    <button className="btn-text soft" disabled={!!pgImgBusy[p.id] || !bibleLocked || !scriptApproved} onClick={() => {
+                      // Fix 4 — a page flagged "finished art" is real, final, uploaded author
+                      // art. The regenerate button must never silently overwrite it; require a
+                      // second explicit confirmation naming exactly what's about to happen.
+                      if (p.finishedArt) {
+                        if (!window.confirm("This page is marked as finished, uploaded art. Regenerating will replace it with new AI-painted art and this can't be undone. Continue?")) return;
+                        genPageImage(p, i, undefined, { allowOverwriteFinishedArt: true });
+                      } else {
+                        genPageImage(p, i);
+                      }
+                    }}>
                       {pgImgBusy[p.id] ? "painting…" : p.img ? "regenerate image" : "generate image"}
                     </button>
                     <button className="btn-text soft" disabled={!!pgUploadBusy[p.id]} onClick={() => pageFileInputs.current[p.id] && pageFileInputs.current[p.id].click()}>
@@ -3829,14 +4114,18 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                     {pgImgErr[p.id] ? <span className="fine" style={{ color: "#9E4A44" }}>{pgImgErr[p.id]}</span> : null}
                     {p.img ? (
                       <label className="fine" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                        <input type="checkbox" checked={!!p.finishedArt} onChange={(e) => setPage(p.id, { finishedArt: e.target.checked })} />
+                        <input type="checkbox" checked={!!p.finishedArt} onChange={(e) => setPage(p.id, { finishedArt: e.target.checked, artStatus: e.target.checked ? "finished_uploaded" : (p.img ? "painted" : "needs_paint") })} />
                         This image already has the text on it — don't print the text below it again
                       </label>
                     ) : null}
                   </div>
                   <PageChat book={book} page={p}
-                    onApply={(text) => setPage(p.id, { text })}
-                    onGenerateImage={(feedback) => genPageImage(p, i, feedback)} />
+                    onApply={(text) => setPage(p.id, {
+                      text, textStatus: "draft",
+                      artStatus: p.img ? "needs_revision" : (p.artStatus || "needs_paint"),
+                      imageDirty: !!p.img, lastUpdatedBy: "amora_chat", lastUpdatedAt: new Date().toISOString(),
+                    })}
+                    onGenerateImage={(feedback, allowOverwriteFinishedArt) => genPageImage(p, i, feedback, { allowOverwriteFinishedArt })} />
                 </div>
               ))}
               <button className="btn-line dark" onClick={addPage}>+ Add a blank page</button>
@@ -3980,9 +4269,15 @@ function PageChat({ book, page, onApply, onGenerateImage }) {
       if (isImgReq(text) && onGenerateImage) {
         if (!page.text || !page.text.trim()) {
           setMsgs((x) => [...x, { role: "amora", text: "This page doesn't have any text yet — write it in the box above (or tell me what should happen here), then ask me to paint it." }]);
+        } else if (page.finishedArt && !/\b(replace|overwrite|redo|regenerate|repaint)\b/i.test(text)) {
+          // Fix 4 — this page is flagged as finished, uploaded art. Don't silently repaint
+          // over it just because the chat message contains a paint-ish verb; require the
+          // author to say so in a way that clearly means "yes, replace the finished art."
+          setMsgs((x) => [...x, { role: "amora", text: "This page is marked as finished, uploaded art, so I won't repaint over it from chat. If you really do want me to replace it with new AI art, say so explicitly — e.g. \"regenerate this finished page.\"" }]);
         } else {
+          const allowOverwrite = !!page.finishedArt;
           setMsgs((x) => [...x, { role: "amora", text: `Painting page ${idx + 1} now, locked to your Character Bible and the rest of the book's art…` }]);
-          const ok = await onGenerateImage(text);
+          const ok = await onGenerateImage(text, allowOverwrite);
           setMsgs((x) => [...x, { role: "amora", text: ok
             ? "Done — the image is on the page now. Tell me exactly what to change and I'll repaint it."
             : "That didn't generate — check the page above for the reason, or just ask me again." }]);

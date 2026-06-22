@@ -306,3 +306,48 @@ create table if not exists book_submissions (
   reviewed_at timestamptz,
   submitted_at timestamptz default now()
 );
+
+-- ============================================================
+-- IMAGE GENERATION EVENTS — Fix 5 (Amora painting-control pass)
+-- Lightweight, best-effort log of every paid image-generation call: who triggered it
+-- (book editor button vs. Amora chat), whether the author explicitly confirmed (required
+-- for any 2+ page batch), whether LoRA/reference-image consistency data was used, and
+-- whether it succeeded, failed, or was blocked (e.g. unconfirmed batch, finishedArt guard).
+-- The app writes to this table in a try/catch and never fails a paint if the insert fails,
+-- so it is safe to run this migration at any time — existing painting code already
+-- tolerates the table not existing yet.
+-- ============================================================
+create table if not exists image_generation_events (
+  id uuid primary key default gen_random_uuid(),
+  author_email text,
+  book_id text,
+  page_id text,
+  source text not null,
+  confirmed_by_user boolean default false,
+  is_batch boolean default false,
+  lora_used boolean default false,
+  reference_image_used boolean default false,
+  used_own_page_as_reference boolean default false,
+  status text not null check (status in ('success','failed','error','blocked_finished_art','blocked_unconfirmed')),
+  error text,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_image_generation_events_book_id on image_generation_events(book_id);
+create index if not exists idx_image_generation_events_created_at on image_generation_events(created_at);
+
+-- ============================================================
+-- PAGE STATUS FIELDS — chat/page-builder synchronization pass
+-- book.pages[] entries are stored inside the studio_data JSONB blob (no schema change
+-- needed for the fields themselves — textStatus/artStatus/imageDirty/lastUpdatedBy/
+-- lastUpdatedAt live directly on each page object). This comment documents the shape so
+-- a future reader of this schema file knows where to look:
+--
+--   page.textStatus      : "draft" | "approved" | "updated_needs_review"
+--   page.artStatus       : "empty" | "needs_paint" | "painted" | "needs_revision"
+--                           | "approved" | "finished_uploaded"
+--   page.imageDirty       : boolean — true when text changed after art existed and the
+--                            art has not been regenerated since
+--   page.lastUpdatedBy     : "amora_chat" | "page_editor" | "upload" | "import"
+--   page.lastUpdatedAt     : ISO timestamp string
+-- ============================================================
