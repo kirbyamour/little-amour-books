@@ -3253,6 +3253,46 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         setBusy(false);
         return;
 
+      } else if (!pendingBibleDraft && book.bibleDrafted
+        && /\b(continue to script|continue to the script|\bscript\b)\b/i.test(text)) {
+        // Bug found live: pendingBibleDraft is local React component state and does NOT
+        // survive a page reload or a fresh navigation back into this book — but the Bible
+        // itself is already saved to book.bible/book.characters by that point (applyBibleDraftToBook
+        // already ran). Without this fallback, saying "continue to script" after a reload fell
+        // through to the generic cascade below, which had no memory of the already-saved Bible
+        // and asked discovery questions again instead of building — the same root bug class as
+        // the raw-idea fixes: Amora not following an instruction already given because the
+        // information it needed was sitting in real book fields instead of transient chat state.
+        const reconstructedDraft = {
+          title: book.title,
+          ageRange: book.ageRange,
+          concept: (book.bible && book.bible.concept) || "",
+          coreMessage: (book.bible && book.bible.coreMessage) || "",
+          emotionalGoal: (book.bible && book.bible.emotionalGoal) || "",
+          setting: (book.bible && book.bible.setting) || "",
+          refrain: (book.bible && book.bible.refrain) || "",
+          boundaries: (book.bible && book.bible.boundaries) || "",
+          avoid: (book.bible && book.bible.avoid) || "",
+          characters: Array.isArray(book.characters) ? book.characters : [],
+        };
+        push("amora", "Drafting a provisional 24-page script from the Book Bible already saved to this book — labeled as a draft, not ready for painting until the Character Bible is approved and locked…");
+        try {
+          const pageTexts = await draftProvisionalScript(reconstructedDraft);
+          if (pageTexts.length) {
+            setBook((b) => ({
+              ...b,
+              pages: pageTexts.map((t) => ({ id: newId(), text: t, img: "", textStatus: "draft", artStatus: "needs_paint" })),
+              scriptDrafted: true,
+              scriptApproved: false,
+            }));
+            push("amora", `Saved a draft ${pageTexts.length}-page script into the Page Editor. Draft script — not ready for painting until the Character Bible is approved and locked. Read through it and change anything, then lock the Character Bible and approve the script before we paint.`);
+          } else throw new Error("no pages");
+        } catch (e) {
+          push("amora", "I had trouble drafting the script just now — say \"draft the script\" again, or paste the pages yourself and I'll save them as-is.");
+        }
+        setBusy(false);
+        return;
+
       } else {
         const convo = msgs.concat({ role: "user", text }).slice(-12)
           .map((m) => `${m.role === "amora" ? "Amora" : "Kirby"}: ${m.text}`).join("\n");
