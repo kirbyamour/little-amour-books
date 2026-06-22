@@ -3220,10 +3220,19 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         setBusy(false);
         return;
 
-      } else if (pendingBibleDraft && pendingBibleDraft.status === "pending"
+      } else if (pendingBibleDraft && (pendingBibleDraft.status === "pending" || pendingBibleDraft.status === "saved")
         && /\b(continue to script|continue to the script|script)\b/i.test(text)) {
         // Draft script — not ready for painting until the Character Bible is approved and
         // locked. Drafting/saving page text never requires locked characters; painting does.
+        // Also fires once the draft has already been saved (status "saved"), not only while
+        // still "pending" — bug found live: after tapping "Save this Bible," a free-text
+        // follow-up like "continue to script... the Bible we just saved" no longer matched
+        // this branch (status had moved to "saved"), so it fell through to the generic
+        // cascade where the broad isSaveBible regex (save + bible) intercepted it instead,
+        // tried to re-parse the prior "Saved..." confirmation message as character JSON,
+        // failed, and surfaced a confusing "I wasn't quite sure how to parse those" reply —
+        // the same root bug class as the raw-idea fixes: Amora not following an instruction
+        // already given because an earlier, unrelated branch grabbed the message first.
         applyBibleDraftToBook(pendingBibleDraft.draft);
         setPendingBibleDraft((d) => (d ? { ...d, status: "saved" } : d));
         push("amora", "Drafting a provisional 24-page script from this — labeled as a draft, not ready for painting until the Character Bible is approved and locked…");
