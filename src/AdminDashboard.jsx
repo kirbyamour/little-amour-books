@@ -928,6 +928,90 @@ function EmailTemplatesManager() {
 }
 
 /* ============================================================
+   FULFILLMENT — admin file-grab panel for sending books to print/
+   distribution partners (Amazon KDP, printers, etc). Lists every
+   exported book ZIP (book_exports table, populated by Publishing.jsx
+   on export) and lets the admin pull a fresh signed download link.
+   ============================================================ */
+function FulfillmentManager() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [grabbing, setGrabbing] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => { load(); }, []);
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("book_exports")
+      .select("*")
+      .order("exported_at", { ascending: false });
+    setRows(data || []);
+    setLoading(false);
+  }
+
+  async function grab(row) {
+    setErr("");
+    setGrabbing(row.id);
+    try {
+      const resp = await fetch("/api/publish-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookId: row.book_id, kind: "fulfillment_download" }),
+      });
+      const json = await resp.json();
+      if (!resp.ok) throw new Error(json.error || "Could not get download link");
+      window.open(json.signedUrl, "_blank");
+    } catch (e) {
+      setErr(e.message || "Download failed");
+    } finally {
+      setGrabbing(null);
+    }
+  }
+
+  if (loading) return <div className="a-loading">Loading exported files…</div>;
+
+  return (
+    <div>
+      <PageTitle title="Fulfillment" sub="Grab the latest exported file for any book to send to Amazon, a printer, or anywhere else" />
+      {err && <div style={{color:"#B33", marginBottom:10}}>{err}</div>}
+      <table className="a-table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Author</th>
+            <th>Status</th>
+            <th>File</th>
+            <th>Exported</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={{fontWeight:700}}>{r.title || "Untitled"}</td>
+              <td>{r.author_name || "Unknown"}</td>
+              <td>{r.export_status || r.status || "—"}</td>
+              <td>{r.file_name || "—"}</td>
+              <td>{r.exported_at ? new Date(r.exported_at).toLocaleString() : "—"}</td>
+              <td>
+                <button className="a-btn gold" onClick={() => grab(r)} disabled={grabbing === r.id}>
+                  {grabbing === r.id ? "Getting link…" : "Download"}
+                </button>
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr><td colSpan={6} style={{color:"#888"}}>No exported files yet — authors generate these from the Publishing tab.</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+
+/* ============================================================
    FINANCE: COST ASSUMPTIONS
    ============================================================ */
 function CostAssumptions() {
@@ -1436,6 +1520,7 @@ const NAV_GROUPS = [
     { id: "lachemails", label: "Launch Emails", alertKey: "lachemails" },
     { id: "authoraccounts", label: "Author Accounts" },
     { id: "emailtemplates", label: "Email Templates" },
+    { id: "fulfillment", label: "Fulfillment" },
   ]},
   { label: "Growth", items: [
     { id: "sponsorcrm", label: "Sponsors" },
@@ -2851,6 +2936,7 @@ export default function AdminDashboard({ onBack }) {
       case "lachemails":    return <LaunchEmails />;
       case "authoraccounts": return <AuthorAccounts />;
       case "emailtemplates": return <EmailTemplatesManager />;
+      case "fulfillment":   return <FulfillmentManager />;
       case "sponsorcrm":   return <SponsorCRM />;
       case "seo":          return <SEODashboard />;
       case "coupons":      return <CouponManager />;

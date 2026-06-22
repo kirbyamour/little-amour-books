@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import JSZip from "jszip";
 import { jsPDF } from "jspdf";
+import { supabase } from "./supabaseClient";
 
 // Same downscale-then-fallback pattern used for page-image uploads in App.jsx (kept as a
 // local copy here since the two files don't share a module) — canvas downscale first,
@@ -1115,6 +1116,30 @@ function ExportCenter({ pub, setPub, book, author, done }) {
     if (!putRes.ok) throw new Error(`Storage upload failed (${putRes.status}).`);
   };
 
+  // Pushes the FULL fulfillment export ZIP (print-ready interior, cover spreads,
+  // metadata sheet, rights checklist, source archive, validation report — everything
+  // in the export, not just the customer PDF) to the private "fulfillment-exports"
+  // bucket at "<book.id>.zip", and records a row in book_exports so the admin
+  // Fulfillment panel can list and download it without anyone re-running this export
+  // as the author. Same signed-upload-URL trust model as the digital PDF above. A
+  // failure here is a warning, not a hard export failure — the author's local ZIP
+  // download already succeeded by the time this runs.
+  const uploadFulfillmentZipToStorage = async (bookId, zipBlob) => {
+    const mintRes = await fetch("/api/publish-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookId, kind: "fulfillment_upload" }),
+    });
+    const mint = await mintRes.json();
+    if (!mintRes.ok || !mint.signedUrl) throw new Error(mint.error || "Could not get a fulfillment upload URL.");
+    const putRes = await fetch(mint.signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/zip" },
+      body: zipBlob,
+    });
+    if (!putRes.ok) throw new Error(`Fulfillment storage upload failed (${putRes.status}).`);
+  };
+
   const runExport = async () => {
     setBusy(true); setLog([]); setFinished(false);
     const zip = new JSZip();
@@ -1511,6 +1536,24 @@ function ExportCenter({ pub, setPub, book, author, done }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = `${zipLabel}.zip`; a.click();
       URL.revokeObjectURL(url);
+
+      addLog("Sending a copy to the admin fulfillment panel…");
+      try {
+        await uploadFulfillmentZipToStorage(book.id, blob);
+        await supabase.from("book_exports").upsert({
+          book_id: book.id,
+          title: mObj.title || book.title || "Untitled",
+          author_name: author?.name || author?.email || "Unknown",
+          status,
+          export_status: exportStatus,
+          file_name: `${zipLabel}.zip`,
+          exported_at: new Date().toISOString(),
+        }, { onConflict: "book_id" });
+        addLog("  ✓ Admin fulfillment copy updated.");
+      } catch (e) {
+        addLog(`  ⚠ Couldn't send a copy to the admin fulfillment panel (${e.message}). Your local ZIP download is still correct.`);
+        findings.push({ level: "warn", area: "Fulfillment", message: `Admin fulfillment upload failed: ${e.message}. Kirby won't see this export in the admin panel until a re-export succeeds.` });
+      }
 
       if (status === "PASS WITH WARNINGS") {
         setPub(p => ({ ...p, digitalPdfDone: true, printPdfDone: true, exportedAt: new Date().toISOString(), exportStatus }));
