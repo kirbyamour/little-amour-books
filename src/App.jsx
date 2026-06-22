@@ -2997,6 +2997,13 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
   // created instead of painting immediately, and the chat shows real action buttons.
   const [pendingPaintRequest, setPendingPaintRequest] = useState(null);
 
+  // Raw-idea discovery — when an author arrives with only a feeling, situation, or rough
+  // concept (no named characters/style yet), Amora drafts a structured starter package
+  // instead of reflecting the idea back or sending her to a blank Characters tab. This is
+  // held only in session state (same as pendingPaintRequest) until the author explicitly
+  // saves it — saving writes it into real book fields, never just book.amoraChat.
+  const [pendingBibleDraft, setPendingBibleDraft] = useState(null);
+
   // Amora's continuous memory of this author — loaded once per session, updated quietly
   // after each real exchange so she keeps getting to know the author over time.
   const [memory, setMemory] = useState("");
@@ -3075,6 +3082,79 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
     push("amora", note || "No problem — take your time. Tell me to paint them whenever you're ready, or use \"Approve script & paint all pages\" in the Page Editor.");
   };
 
+  // Raw-idea discovery — formats a structured starter package (working title, age range,
+  // concept, core message, emotional goal, characters, setting, refrain, trauma-sensitive
+  // boundaries, what to avoid, style guide, next step) instead of reflecting an idea back.
+  // "Amora is not a mirror. Amora is a maker."
+  const formatBibleDraftMessage = (d) => {
+    const chars = Array.isArray(d.characters) ? d.characters : [];
+    const lines = [
+      d.title ? `Working title: ${d.title}` : null,
+      d.ageRange ? `Age range: ${d.ageRange}` : null,
+      d.concept ? `Concept: ${d.concept}` : null,
+      d.coreMessage ? `Core message: ${d.coreMessage}` : null,
+      d.emotionalGoal ? `Emotional goal for the child: ${d.emotionalGoal}` : null,
+      chars.length ? `Main characters:\n${chars.map((c) => `  — ${c.name}${c.role ? ` (${c.role})` : ""}: ${c.desc || ""}`).join("\n")}` : null,
+      d.setting ? `Setting options: ${d.setting}` : null,
+      d.refrain ? `Repeated phrase/refrain: "${d.refrain}"` : null,
+      d.boundaries ? `Trauma-sensitive boundaries: ${d.boundaries}` : null,
+      d.avoid ? `What this book should avoid: ${d.avoid}` : null,
+      d.styleGuide ? `Visual style guide (draft): ${d.styleGuide}` : null,
+      d.nextStep ? `Suggested next step: ${d.nextStep}` : null,
+    ].filter(Boolean);
+    return `Here's a starter package built from what you've told me:\n\n${lines.join("\n\n")}\n\nWould you like me to save this as a draft Book Bible, revise it, draft another option, or continue to a 24-page script?`;
+  };
+
+  // Writes a draft straight into real book state — book.bible, book.characters (saved as
+  // drafts, NOT locked), book.styleGuide, book.ageRange, and the title if still "Untitled
+  // book". Never left sitting only in book.amoraChat. bibleLocked stays false here on
+  // purpose: the Characters tab becomes the visual-lock step, not a blank first creative
+  // burden — locked characters are required before painting, not before story discovery.
+  const applyBibleDraftToBook = (d) => {
+    const chars = Array.isArray(d.characters)
+      ? d.characters.filter((c) => c && c.name).map((c) => ({ name: c.name, desc: c.desc || "", role: c.role || "" }))
+      : [];
+    setBook((b) => ({
+      ...b,
+      title: (!b.title || b.title === "Untitled book") && d.title ? d.title : b.title,
+      ageRange: d.ageRange || b.ageRange,
+      bible: { ...(b.bible || {}), concept: d.concept || "", coreMessage: d.coreMessage || "", emotionalGoal: d.emotionalGoal || "", setting: d.setting || "", refrain: d.refrain || "", boundaries: d.boundaries || "", avoid: d.avoid || "" },
+      characters: chars.length ? chars : b.characters,
+      styleGuide: d.styleGuide || b.styleGuide,
+      discoveryStarted: true,
+      bibleDrafted: true,
+    }));
+  };
+
+  // Re-runs the starter-package draft with extra instruction — used by both "revise this"
+  // and "draft another option", so the author never has to re-explain the original idea.
+  const regenerateBibleDraft = async (extraInstruction) => {
+    try {
+      const draftRaw = await amora(
+        `An author already saw this starter book-idea draft:\n${JSON.stringify((pendingBibleDraft && pendingBibleDraft.draft) || {})}\n\n${extraInstruction}\n\nReturn ONLY JSON with these exact keys: {"title":"...","ageRange":"...","concept":"...","coreMessage":"...","emotionalGoal":"...","characters":[{"name":"...","role":"...","desc":"..."}],"setting":"...","refrain":"...","boundaries":"...","avoid":"...","styleGuide":"...","nextStep":"..."}`,
+        AMORA_SYS + " STRUCTURED MODE: output valid JSON only. Be warm, concrete, and trauma-sensitive.", 1800
+      );
+      const draft = parseLoose(draftRaw);
+      const id = newId();
+      setPendingBibleDraft({ id, status: "pending", draft, createdAt: new Date().toISOString() });
+      push("amora", formatBibleDraftMessage(draft), { pendingBibleId: id });
+    } catch (e) {
+      push("amora", "I had trouble reworking that just now — tell me what you'd like changed and I'll try again.");
+    }
+  };
+
+  // Drafts a provisional 24-page manuscript straight from the discovery package. Drafting
+  // and saving page text never requires a locked Character Bible — only painting does.
+  const draftProvisionalScript = async (d) => {
+    const chars = Array.isArray(d.characters) ? d.characters : [];
+    const raw = await amora(
+      `Draft a 24-page picture book manuscript from this provisional concept. Working title: "${d.title || "Untitled"}". Age range: ${d.ageRange || "not set"}. Concept: ${d.concept || ""}. Core message: ${d.coreMessage || ""}. Emotional goal: ${d.emotionalGoal || ""}. Characters: ${chars.map((c) => `${c.name}: ${c.desc}`).join(" | ") || "none named yet"}. Setting: ${d.setting || ""}. Repeated phrase/refrain to weave through the book: ${d.refrain || "none"}. Trauma-sensitive boundaries to respect: ${d.boundaries || "none stated"}. Avoid: ${d.avoid || "nothing specific stated"}.\n\nWrite exactly 24 short page texts, one per page, in the author's emotional tone — gentle, concrete, age-appropriate. This is a DRAFT for the author to revise, not final.\n\nReturn ONLY JSON: {"pages":["page 1 text", ...24 total]}`,
+      AMORA_SYS + " STRUCTURED MODE: output valid JSON only.", 2600
+    );
+    const parsed = parseLoose(raw);
+    return Array.isArray(parsed.pages) ? parsed.pages.filter((t) => typeof t === "string" && t.trim()) : [];
+  };
+
   const send = async (override) => {
     const text = (override || input).trim();
     if ((!text && !chatImg) || busy) return;
@@ -3117,6 +3197,50 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
       } else if (pendingPaintRequest && pendingPaintRequest.status === "pending"
         && /\b(review first|not yet|hold off|wait|cancel)\b/i.test(text)) {
         dismissPendingPaint();
+        setBusy(false);
+        return;
+
+      } else if (pendingBibleDraft && pendingBibleDraft.status === "pending" && /\bsave\b/i.test(text)) {
+        // "Save this Bible" — writes the draft into real book fields (Characters tab, style
+        // guide, age range), unlocked. Never left sitting only in book.amoraChat.
+        applyBibleDraftToBook(pendingBibleDraft.draft);
+        setPendingBibleDraft((d) => (d ? { ...d, status: "saved" } : d));
+        push("amora", `Saved — "${pendingBibleDraft.draft.title || book.title}" is your draft Book Bible now. I've written the characters into the Characters tab (as drafts, not locked yet), the style guide, and the age range — nothing's sitting only in chat. Next: keep developing the story, say "continue to script" for a 24-page draft, or lock the Character Bible whenever you're ready to paint.`);
+        setBusy(false);
+        return;
+
+      } else if (pendingBibleDraft && pendingBibleDraft.status === "pending"
+        && /\b(another option|draft another|second option|different (take|version|option))\b/i.test(text)) {
+        await regenerateBibleDraft("Draft a meaningfully different second option — same real situation/idea, different angle on title, characters, or setting.");
+        setBusy(false);
+        return;
+
+      } else if (pendingBibleDraft && pendingBibleDraft.status === "pending" && /\b(revise|change)\b/i.test(text)) {
+        await regenerateBibleDraft(`Revise it per this feedback: "${text}"`);
+        setBusy(false);
+        return;
+
+      } else if (pendingBibleDraft && pendingBibleDraft.status === "pending"
+        && /\b(continue to script|continue to the script|script)\b/i.test(text)) {
+        // Draft script — not ready for painting until the Character Bible is approved and
+        // locked. Drafting/saving page text never requires locked characters; painting does.
+        applyBibleDraftToBook(pendingBibleDraft.draft);
+        setPendingBibleDraft((d) => (d ? { ...d, status: "saved" } : d));
+        push("amora", "Drafting a provisional 24-page script from this — labeled as a draft, not ready for painting until the Character Bible is approved and locked…");
+        try {
+          const pageTexts = await draftProvisionalScript(pendingBibleDraft.draft);
+          if (pageTexts.length) {
+            setBook((b) => ({
+              ...b,
+              pages: pageTexts.map((t) => ({ id: newId(), text: t, img: "", textStatus: "draft", artStatus: "needs_paint" })),
+              scriptDrafted: true,
+              scriptApproved: false,
+            }));
+            push("amora", `Saved a draft ${pageTexts.length}-page script into the Page Editor. Draft script — not ready for painting until the Character Bible is approved and locked. Read through it and change anything, then lock the Character Bible and approve the script before we paint.`);
+          } else throw new Error("no pages");
+        } catch (e) {
+          push("amora", "I had trouble drafting the script just now — say \"draft the script\" again, or paste the pages yourself and I'll save them as-is.");
+        }
         setBusy(false);
         return;
 
@@ -3170,16 +3294,34 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
         // isScriptPaste since a short status question is neither a script paste nor multi-line.
         const isStatusReq = /\b(where are we|what's left|what is left|what still needs|book status|status update|status check|how's (the |my )?book|where (do |does )?(the |this )?book stand)\b/i.test(text);
 
+        // Detect a raw, undeveloped book idea — a feeling, family situation, trauma/survivor
+        // parenting scenario, or a rough-concept title, arriving with no named characters or
+        // style yet. Discovery is allowed before the bible is locked — Amora drafts a real
+        // structured starter package instead of reflecting the idea back or pointing to a
+        // blank Characters tab. "Amora is not a mirror. Amora is a maker."
+        const isRawBookIdea = !isMultiPageReq && !isImageReq && !isSaveBible && !isBuildBible
+          && !isLockBible && !isSyncCharsFromPages && !isStatusReq && !book.bibleLocked
+          && text.trim().length > 12
+          && (
+            /\b(book idea|story idea|idea for a book|want(s)? to write a book|want(s)? to make a book|thinking about a book|working title|book about|story about|a book where|a story where)\b/i.test(text)
+            || /\b(my (son|daughter|child|kid|kids)|survivor|trauma|traumatic|abuse|abusive|divorce|divorced|separation|deployment|deployed|foster care|adopt(ed|ion)?|grief|grieving|lost (her|his|my) (mom|dad|mother|father|parent)|passed away|\bdied\b|diagnosis|diagnosed|cancer|hospital|illness|anxiety|nightmares?|scared of|afraid of|bully|bullying|bullied|custody|new baby|new sibling|moving away)\b/i.test(text)
+          );
+
         // Detect a full manuscript paste — multiple distinct lines/paragraphs handed over at
         // once with no other matched intent. Previously this fell straight into the generic
         // chit-chat branch, which could only react in prose and never actually saved a word
         // of it onto the book's pages — which read to the author as Amora ignoring the script.
         const isScriptPaste = !isMultiPageReq && !isImageReq && !isSaveBible && !isBuildBible
-          && !isLockBible && !isSyncCharsFromPages && !isStatusReq
+          && !isLockBible && !isSyncCharsFromPages && !isStatusReq && !isRawBookIdea
           && text.split(/\n+/).map((l) => l.trim()).filter(Boolean).length >= 2
           && text.length > 120;
 
-        const lockGateMsg = "Let's lock in your Character Bible and art style first — open the Characters tab, fill everyone in (and the book's style & feel), then tap \"Lock Character Bible.\" Once that's locked, every page I paint will actually match.";
+        // Visual Lock Mode messaging — locked characters are required before painting, not
+        // before story discovery or script drafting. If the author hasn't discovered any
+        // characters yet, don't point her at a blank Characters tab; offer discovery instead.
+        const lockGateMsg = book.characters.length
+          ? "Let's lock in your Character Bible and art style first — open the Characters tab, check everyone's filled in (and the book's style & feel), then tap \"Lock Character Bible.\" Once that's locked, every page I paint will actually match."
+          : "Before we paint, we need to lock the Character Bible and style so the artwork stays consistent. You don't need to know the characters yet — tell me the idea (who it's for, what's going on) and I'll draft a starter Character Bible for you to approve, then we'll lock it before painting.";
         const scriptGateMsg = "Your Bible's locked — good. Now let's finish the full script before any art: write out the pages you want, then use \"Approve script & paint all pages\" in the Page Editor. I'll paint everything in one matching pass right after, instead of page by page.";
 
         if (isSyncCharsFromPages) {
@@ -3424,6 +3566,24 @@ Return ONLY JSON: {"characters":[{"name":"...","desc":"full visual + emotional d
             }
           } catch (e) {
             push("amora", "I don't have enough real detail yet to build actual characters — I'd rather leave it blank than make something up. Tell me who's in this book: names, what they look like, how they act, and I'll draft proper entries from that.");
+          }
+
+        } else if (isRawBookIdea) {
+          // Discovery Mode — the author arrived with only a feeling, situation, or rough
+          // concept, not named characters. Draft a real structured starter package instead
+          // of reflecting the idea back. No image generation happens here.
+          push("amora", "Let's shape this into a story — give me a moment to put together a starter package…");
+          try {
+            const draftRaw = await amora(
+              `An author is bringing a raw book idea, family situation, or feeling — not yet named characters or a style. Here is the conversation so far:\n${convo}\n\nDraft a structured starter package for her picture book. Stay close to what she actually said — extend it gently, but do not invent unrelated plot. Be trauma-sensitive: this may involve a survivor parent, a hard family situation, or a child's hard feeling. Never make the book heavier or more explicit than the parent's own words.\n\nReturn ONLY JSON with these exact keys:\n{"title":"working title","ageRange":"e.g. 4-8","concept":"one sentence concept","coreMessage":"the book's core message","emotionalGoal":"the emotional goal for the child reader","characters":[{"name":"...","role":"main character / caregiver / comfort object etc","desc":"full visual + emotional description"}],"setting":"setting options, 1-2 sentences","refrain":"a short repeated phrase/refrain the book can use","boundaries":"trauma-sensitive boundaries to respect","avoid":"what this book should avoid doing or saying","styleGuide":"a draft visual style direction, 1-2 sentences","nextStep":"one sentence suggested next step"}`,
+              AMORA_SYS + " STRUCTURED MODE: output valid JSON only. Be warm, concrete, and trauma-sensitive. Never generate or describe explicit imagery, only describe style direction.", 1800
+            );
+            const draft = parseLoose(draftRaw);
+            const id = newId();
+            setPendingBibleDraft({ id, status: "pending", draft, createdAt: new Date().toISOString() });
+            push("amora", formatBibleDraftMessage(draft), { pendingBibleId: id });
+          } catch (e) {
+            push("amora", "I want to build this properly instead of guessing — could you say a little more about the idea (who it's for, what's going on, how you want the child to feel by the end)? I'll turn that straight into a starter Book Bible.");
           }
 
         } else if (isScriptPaste) {
@@ -3695,6 +3855,14 @@ CRITICAL: You have NOT locked, saved, added, or generated anything by writing th
                     <button className="btn-gold" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={confirmPendingPaint}>Paint these pages now</button>
                     <button className="btn-line dark" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={() => dismissPendingPaint()}>Review first</button>
                     <button className="btn-line dark" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={() => dismissPendingPaint("No problem — cancelled. Nothing was painted.")}>Cancel</button>
+                  </div>
+                ) : null}
+                {m.pendingBibleId && pendingBibleDraft && pendingBibleDraft.id === m.pendingBibleId && pendingBibleDraft.status === "pending" ? (
+                  <div className="gen-img-actions" style={{ marginTop: 8 }}>
+                    <button className="btn-gold" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={() => send("Save this Bible")}>Save this Bible</button>
+                    <button className="btn-line dark" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={() => send("Revise this Bible")}>Revise this Bible</button>
+                    <button className="btn-line dark" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={() => send("Draft another option")}>Draft another option</button>
+                    <button className="btn-line dark" style={{ fontSize: 13, padding: "6px 12px" }} disabled={busy} onClick={() => send("Continue to script")}>Continue to script</button>
                   </div>
                 ) : null}
               </div>
