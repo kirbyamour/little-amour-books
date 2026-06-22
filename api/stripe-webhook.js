@@ -145,28 +145,53 @@ export default async function handler(req, res) {
         ? `<p style="margin-top:16px;font-size:14px;color:#555;">Your merch item(s) will ship within 5–10 business days. You'll receive a separate shipping confirmation.</p>`
         : "";
 
+      const bookListHtml = digitalItems.length ? `
+              <div style="background:#fff;border-radius:12px;padding:20px 24px;margin:20px 0;border:1px solid #ECD9C5;">
+                <p style="font-weight:700;color:#4A3B6E;margin-top:0;">Your books:</p>
+                <ul style="padding-left:20px;line-height:2;">${bookLinks}</ul>
+                <p style="font-size:13px;color:#888;margin-bottom:0;">Click any title to download your book. This link is just for you — please don't share it.</p>
+              </div>` : "";
+
+      // Default template — used if the admin-editable template is missing or the table doesn't exist yet
+      const DEFAULT_SUBJECT = "Your Little Amour books are ready 💜";
+      const DEFAULT_BODY = `
+            <div style="max-width:560px;margin:0 auto;font-family:Georgia,serif;background:#faf4eb;padding:32px;border-radius:16px;">
+              <h1 style="color:#4A3B6E;font-size:24px;margin-bottom:4px;">Thank you for your purchase 💜</h1>
+              <p style="color:#6E5572;margin-top:0;">Your order of \${{total}} is confirmed.</p>
+              {{bookListHtml}}
+              {{merchNotice}}
+              <p style="font-size:13px;color:#888;margin-top:24px;">Questions? Reply to this email or visit <a href="${SITE}/contact" style="color:#7C3AED;">${SUPPORT}</a></p>
+              <p style="font-size:12px;color:#bbb;margin-top:16px;">Little Amour · Books written with love, read with feeling.</p>
+            </div>
+          `;
+
+      let emailSubject = DEFAULT_SUBJECT;
+      let emailBody = DEFAULT_BODY;
+      try {
+        const { data: tpl } = await supabase
+          .from("email_templates")
+          .select("subject, body_html")
+          .eq("key", "order_confirmation")
+          .single();
+        if (tpl?.subject) emailSubject = tpl.subject;
+        if (tpl?.body_html) emailBody = tpl.body_html;
+      } catch (tplErr) {
+        console.error("email_templates lookup failed, using default:", tplErr.message);
+      }
+
+      const fill = (str) => str
+        .replaceAll("{{total}}", total.toFixed(2))
+        .replaceAll("{{bookListHtml}}", bookListHtml)
+        .replaceAll("{{merchNotice}}", merchNotice);
+
       await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           from: `Little Amour <${SUPPORT}>`,
           to: email,
-          subject: "Your Little Amour books are ready 💜",
-          html: `
-            <div style="max-width:560px;margin:0 auto;font-family:Georgia,serif;background:#faf4eb;padding:32px;border-radius:16px;">
-              <h1 style="color:#4A3B6E;font-size:24px;margin-bottom:4px;">Thank you for your purchase 💜</h1>
-              <p style="color:#6E5572;margin-top:0;">Your order of $${total.toFixed(2)} is confirmed.</p>
-              ${digitalItems.length ? `
-              <div style="background:#fff;border-radius:12px;padding:20px 24px;margin:20px 0;border:1px solid #ECD9C5;">
-                <p style="font-weight:700;color:#4A3B6E;margin-top:0;">Your books:</p>
-                <ul style="padding-left:20px;line-height:2;">${bookLinks}</ul>
-                <p style="font-size:13px;color:#888;margin-bottom:0;">Click any title to download your book. This link is just for you — please don't share it.</p>
-              </div>` : ""}
-              ${merchNotice}
-              <p style="font-size:13px;color:#888;margin-top:24px;">Questions? Reply to this email or visit <a href="${SITE}/contact" style="color:#7C3AED;">${SUPPORT}</a></p>
-              <p style="font-size:12px;color:#bbb;margin-top:16px;">Little Amour · Books written with love, read with feeling.</p>
-            </div>
-          `,
+          subject: fill(emailSubject),
+          html: fill(emailBody),
         }),
       });
     }

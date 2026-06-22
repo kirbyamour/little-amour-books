@@ -841,6 +841,93 @@ function PricingSettings() {
 }
 
 /* ============================================================
+   EMAIL TEMPLATES — edit the wording of auto-sent system emails
+   ============================================================ */
+function EmailTemplatesManager() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { load(); }, []);
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase.from("email_templates").select("*").order("label");
+    setRows(data || []);
+    setLoading(false);
+  }
+  async function save(row) {
+    setSaving(true);
+    await supabase.from("email_templates").update({
+      subject: row.subject,
+      body_html: row.body_html,
+      updated_at: new Date().toISOString(),
+    }).eq("id", row.id);
+    setSaving(false);
+    setEditing(null);
+    load();
+  }
+
+  if (loading) return <div className="a-loading">Loading email templates…</div>;
+
+  return (
+    <div>
+      <PageTitle title="Email Templates" sub="Edit the wording of emails sent automatically by the site" />
+      <table className="a-table">
+        <thead><tr><th>Template</th><th>Subject</th><th>Last updated</th><th></th></tr></thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td>
+                <div style={{fontWeight:700}}>{r.label}</div>
+                {r.description && <div style={{fontSize:12,color:"#888",marginTop:2}}>{r.description}</div>}
+              </td>
+              <td>{r.subject}</td>
+              <td>{r.updated_at ? new Date(r.updated_at).toLocaleDateString() : "—"}</td>
+              <td><button className="a-link" onClick={() => setEditing({...r})}>Edit</button></td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr><td colSpan={4} style={{color:"#888"}}>No email templates yet.</td></tr>
+          )}
+        </tbody>
+      </table>
+
+      {editing && (
+        <Modal title={`Edit: ${editing.label}`} onClose={() => setEditing(null)}>
+          <div className="a-form">
+            {editing.description && (
+              <div style={{fontSize:13,color:"#666",background:"#FAF4EB",padding:"10px 14px",borderRadius:8,marginBottom:4}}>
+                {editing.description}
+              </div>
+            )}
+            <label>Subject
+              <input value={editing.subject || ""} onChange={e => setEditing(p => ({...p, subject: e.target.value}))} />
+            </label>
+            <label>Body (HTML)
+              <textarea
+                rows={14}
+                style={{width:"100%", fontFamily:"monospace", fontSize:12.5, resize:"vertical"}}
+                value={editing.body_html || ""}
+                onChange={e => setEditing(p => ({...p, body_html: e.target.value}))}
+              />
+            </label>
+            <div style={{fontSize:12,color:"#888",background:"#F4F0FA",padding:"10px 14px",borderRadius:8}}>
+              <strong>Available placeholders</strong> — keep these somewhere in the body, they're filled in automatically per order:
+              <br />
+              <code>{"{{total}}"}</code> — order total &nbsp;
+              <code>{"{{bookListHtml}}"}</code> — the customer's book download links &nbsp;
+              <code>{"{{merchNotice}}"}</code> — shipping note for physical items
+            </div>
+            <button className="a-btn gold" onClick={() => save(editing)} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
    FINANCE: COST ASSUMPTIONS
    ============================================================ */
 function CostAssumptions() {
@@ -1348,6 +1435,7 @@ const NAV_GROUPS = [
     { id: "newsletter", label: "Newsletter" },
     { id: "lachemails", label: "Launch Emails", alertKey: "lachemails" },
     { id: "authoraccounts", label: "Author Accounts" },
+    { id: "emailtemplates", label: "Email Templates" },
   ]},
   { label: "Growth", items: [
     { id: "sponsorcrm", label: "Sponsors" },
@@ -2762,6 +2850,7 @@ export default function AdminDashboard({ onBack }) {
       case "newsletter":    return <NewsletterDraft />;
       case "lachemails":    return <LaunchEmails />;
       case "authoraccounts": return <AuthorAccounts />;
+      case "emailtemplates": return <EmailTemplatesManager />;
       case "sponsorcrm":   return <SponsorCRM />;
       case "seo":          return <SEODashboard />;
       case "coupons":      return <CouponManager />;
