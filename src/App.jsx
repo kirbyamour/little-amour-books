@@ -2371,6 +2371,7 @@ async function paintPageWithConsistency({
     let referenceImageUrl = null;
     let usedOwnPageAsReference = false;
     let usedVisualKitAssetAsReference = false;
+    let usedPage1AsContinuityReference = false;
     if (!loraUrl) {
       if (isRevision && page.img) {
         referenceImageUrl = page.img;
@@ -2392,6 +2393,7 @@ async function paintPageWithConsistency({
         // page") until a real multi-reference or per-book LoRA method exists.
         const page1 = book.pages[0];
         referenceImageUrl = (page1 && page1.img) || otherPageImgs[0] || null;
+        usedPage1AsContinuityReference = !!referenceImageUrl && referenceImageUrl === (page1 && page1.img);
       }
     }
 
@@ -2401,12 +2403,20 @@ async function paintPageWithConsistency({
     // being redrawn — strength here means "how much the output may diverge from the
     // reference," so they need a HIGHER strength than the page-to-page default, giving
     // the model real freedom to compose page 1's actual scene while still leaning on the
-    // Scene Anchor for identity/setting/style. Full repaints and ordinary page-to-page
-    // anchors (pages 2+) keep the existing default.
+    // Scene Anchor for identity/setting/style. Pages 2+ referencing page 1's fully-painted
+    // result had the same over-anchoring problem one level downstream: default strength
+    // (0.55) treated page 1 as "redraw this," producing near-duplicate compositions
+    // regardless of each page's own text (confirmed live — see task #262/#263). Raised to
+    // 0.75 so the model leans on page 1 for Pip's identity/world/style but lets the new
+    // page's own prompt drive composition. If this still copies too much, try 0.85; if
+    // Pip drifts, back down to 0.68-0.7 and strengthen the page-specific scene prompt
+    // instead (agreed with Jace in the "Children's Books on Hardships" QA thread).
     const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq
       ? 0.32
       : usedVisualKitAssetAsReference
       ? 0.8
+      : usedPage1AsContinuityReference
+      ? 0.75
       : undefined;
 
     const imgRes = await fetch("/api/image", {
