@@ -2407,16 +2407,19 @@ async function paintPageWithConsistency({
     // result had the same over-anchoring problem one level downstream: default strength
     // (0.55) treated page 1 as "redraw this," producing near-duplicate compositions
     // regardless of each page's own text (confirmed live — see task #262/#263). Raised to
-    // 0.75 so the model leans on page 1 for Pip's identity/world/style but lets the new
-    // page's own prompt drive composition. If this still copies too much, try 0.85; if
-    // Pip drifts, back down to 0.68-0.7 and strengthen the page-specific scene prompt
-    // instead (agreed with Jace in the "Children's Books on Hardships" QA thread).
+    // 0.75 first — live-tested on Page 2, still a near-clone of page 1 (no behavior change
+    // from 0.55). Raising further to 0.85 as an isolated single-variable test (prompt
+    // unchanged) per Jace's instruction in the "Children's Books on Hardships" QA thread,
+    // to determine whether the strength lever has any real effect at all in this range
+    // before also touching the per-page scene prompt. If 0.85 is still a clone, stop
+    // treating page1-image2image as the continuity strategy and move to prompt-driven
+    // scene-change injection instead.
     const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq
       ? 0.32
       : usedVisualKitAssetAsReference
       ? 0.8
       : usedPage1AsContinuityReference
-      ? 0.75
+      ? 0.85
       : undefined;
 
     const imgRes = await fetch("/api/image", {
