@@ -2073,6 +2073,41 @@ async function genStyleSample(styleGuide, sceneIdea, seed) {
   return data.url;
 }
 
+// Part of the Visual Kit — unlike the character portrait (one person, blank background,
+// no scene) or the setting reference (the place, no one in it), this is a real storybook
+// SCENE: the protagonist actually placed inside the main setting, with real composition,
+// depth, and environment. Page 1 anchors to this instead of the isolated portrait. A flat
+// portrait has nothing for image-to-image to vary except the pose it's already showing, so
+// anchoring page 1 to it just reproduced the portrait near-verbatim instead of painting the
+// page's actual scene (confirmed live: "Sometimes things get very loud" came back as a
+// blank-background character sheet, not an illustration). The Scene Anchor gives the model
+// a real composition — protagonist + place + style — to build a new scene from.
+async function genSceneAnchor(character, styleGuide, settingDesc, seed) {
+  const who = character ? `${character.name} — ${character.desc}` : "the protagonist";
+  const prompt = [
+    `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
+    ``,
+    SINGLE_IMAGE_FORMAT_RULE,
+    ``,
+    `Create a single full picture-book SCENE — not a character portrait and not a character reference sheet. Show the protagonist actually present and active within the book's main setting, with a real environment around them (furniture, light, depth, background) the way an actual finished page would look. This establishes how the protagonist looks IN PLACE in the story's world, so later pages can paint new scenes that build on it.`,
+    ``,
+    `PROTAGONIST (exact, paintable detail): ${who}`,
+    ``,
+    `SETTING: ${settingDesc || "a warm, cozy home"}`,
+    ``,
+    NO_TEXT_RULE,
+    ``,
+    `Do not render this as a posed reference sheet, a collage, or multiple panels — one single continuous illustrated scene only.`,
+  ].join("\n");
+  const res = await fetch("/api/image", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.url;
+}
+
 // Four varied, character-free domestic scenes — enough visual variety for the LoRA to
 // learn "the style" rather than memorizing one composition.
 const STYLE_SAMPLE_SCENES = [
@@ -2231,14 +2266,34 @@ function assertBatchPaintConfirmed({ pageIds, confirmedByUser, source }) {
 //                      because clicking "generate image" or sending one chat request
 //                      IS the confirmation for that one image.
 //   isBatch         — true when this call is part of a multi-page loop.
+// Some Character Bible entries aren't a person at all — they're a symbolic motif used
+// in the story's language ("The Quiet Place Inside," a feeling, an inner light, a worry).
+// The image model can't honor "no face" as an instruction; left as an ordinary Character
+// Bible entry it renders a literal extra child every time it's mentioned (confirmed live).
+// This heuristic flags those entries by name/description so they're treated as a visual
+// motif/style note instead of a paintable character — no generated portrait, and never
+// listed as a person in a page's character manifest.
+const SYMBOLIC_MOTIF_WORDS = /\b(feeling|feelings|inner light|inner glow|inner voice|worry|worries|safety|memory|memories|quiet place|heavy words|emotion|emotions|emotional state|emotional states)\b/i;
+function isSymbolicMotif(character) {
+  if (!character) return false;
+  const text = `${character.name || ""} ${character.desc || ""} ${character.role || ""}`;
+  return SYMBOLIC_MOTIF_WORDS.test(text)
+    || /\bnot a (separate )?character\b/i.test(text)
+    || /\bno face\b/i.test(text)
+    || /\bno voice of (its|her|his) own\b/i.test(text);
+}
+
 // Picks the protagonist (main child) out of a character list so page-1 painting can
-// anchor to their Visual Kit portrait specifically, not just "whoever is first." Falls
-// back to the first character when no role is tagged, since manually-added characters
-// (via the Characters tab "+ Add a character" button) have no role field at all.
+// anchor to their Visual Kit identity specifically, not just "whoever is first." Falls
+// back to the first non-motif character when no role is tagged, since manually-added
+// characters (via the Characters tab "+ Add a character" button) have no role field at
+// all. Symbolic motifs (see isSymbolicMotif) are never a candidate protagonist.
 function protagonistCharacter(characters) {
   if (!Array.isArray(characters) || !characters.length) return null;
-  const byRole = characters.find((c) => /\b(main|protagonist|child)\b/i.test(c.role || ""));
-  return byRole || characters[0];
+  const candidates = characters.filter((c) => !isSymbolicMotif(c));
+  const pool = candidates.length ? candidates : characters;
+  const byRole = pool.find((c) => /\b(main|protagonist|child)\b/i.test(c.role || ""));
+  return byRole || pool[0];
 }
 
 async function paintPageWithConsistency({
@@ -2272,7 +2327,10 @@ async function paintPageWithConsistency({
   try {
     const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
     const charManifest = activeChars.length
-      ? activeChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+      ? activeChars.map((c) => isSymbolicMotif(c)
+          ? `— ${c.name}: this is a symbolic motif, NOT a person or character. Never render as a second child, figure, or additional person. Depict only as a soft warm glow / gentle inner light motif (e.g. warm golden illumination near the protagonist), consistent with its description: ${c.desc}`
+          : `— ${c.name}: ${c.desc}`
+        ).join("\n")
       : "(no named characters — environment/setting only)";
     let seed = collection ? collection.seed : book.seed;
     if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
@@ -2308,16 +2366,22 @@ async function paintPageWithConsistency({
     // applies when there's no LoRA (a LoRA already anchors identity/style on its own).
     let referenceImageUrl = null;
     let usedOwnPageAsReference = false;
+    let usedVisualKitAssetAsReference = false;
     if (!loraUrl) {
       if (isRevision && page.img) {
         referenceImageUrl = page.img;
         usedOwnPageAsReference = true;
       } else if ((pageIndex || 0) === 0) {
-        // Page 1 is the book's first real anchor — use the protagonist's approved
-        // Visual Kit portrait so the very first painted page already matches the
-        // locked reference, instead of guessing from an arbitrary other page.
-        const protagonist = protagonistCharacter(activeChars);
-        referenceImageUrl = (protagonist && protagonist.img) || otherPageImgs[0] || null;
+        // Page 1 anchors to the Visual Kit's Scene Anchor — a full scene with the
+        // protagonist already placed in the setting — never the isolated character
+        // portrait. A portrait has no background/composition for image-to-image to vary,
+        // so anchoring to it just reproduced the portrait near-verbatim instead of
+        // painting page 1's actual scene (confirmed live, see genSceneAnchor's comment).
+        const vk = book.visualKit || {};
+        referenceImageUrl = vk.sceneAnchorImg || vk.settingImg || vk.styleSampleImg || otherPageImgs[0] || null;
+        usedVisualKitAssetAsReference = !!referenceImageUrl && (
+          referenceImageUrl === vk.sceneAnchorImg || referenceImageUrl === vk.settingImg || referenceImageUrl === vk.styleSampleImg
+        );
       } else {
         // Pages 2+ anchor to page 1's own painted result — the single continuity
         // anchor for the whole book (per-page reference, not a generic "some other
@@ -2328,9 +2392,18 @@ async function paintPageWithConsistency({
     }
 
     // Minor edits anchor hard to the page's own current image (low strength — change as
-    // little as possible beyond the requested fix). Full repaints and first-time paints
-    // use the default strength so the model has room to actually generate a new scene.
-    const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq ? 0.32 : undefined;
+    // little as possible beyond the requested fix). Visual Kit assets (Scene Anchor,
+    // setting, style sample) are reference *material* for a brand-new page, not a page
+    // being redrawn — strength here means "how much the output may diverge from the
+    // reference," so they need a HIGHER strength than the page-to-page default, giving
+    // the model real freedom to compose page 1's actual scene while still leaning on the
+    // Scene Anchor for identity/setting/style. Full repaints and ordinary page-to-page
+    // anchors (pages 2+) keep the existing default.
+    const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq
+      ? 0.32
+      : usedVisualKitAssetAsReference
+      ? 0.8
+      : undefined;
 
     const imgRes = await fetch("/api/image", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -2341,7 +2414,7 @@ async function paintPageWithConsistency({
     });
     const imgData = await imgRes.json();
     if (imgData.error) {
-      await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, status: "failed", error: imgData.error, authorEmail });
+      await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, usedVisualKitAssetAsReference, status: "failed", error: imgData.error, authorEmail });
       return { ok: false, error: imgData.error };
     }
     if (applyToBookPages && page.id) {
@@ -2353,8 +2426,8 @@ async function paintPageWithConsistency({
         lastUpdatedBy: source, lastUpdatedAt: new Date().toISOString(),
       } : pg)) }));
     }
-    await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, status: "success", authorEmail });
-    return { ok: true, url: imgData.url, usedOwnPageAsReference, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl };
+    await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, usedVisualKitAssetAsReference, status: "success", authorEmail });
+    return { ok: true, url: imgData.url, usedOwnPageAsReference, usedVisualKitAssetAsReference, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl };
   } catch (e) {
     await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, status: "error", error: (e && e.message) || "unknown", authorEmail });
     return { ok: false, error: "Image generation failed — try again." };
@@ -4190,9 +4263,15 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   // paintPageWithConsistency's referenceImageUrl logic), which is what actually keeps
   // identity/setting/style consistent — locked text alone wasn't enough; that's the
   // root cause of the identity drift found in the "My Mind Is Mine" live trial.
+  // Symbolic-motif Bible entries ("The Quiet Place Inside," a feeling, an inner light)
+  // aren't a paintable character — see isSymbolicMotif. They don't need a portrait and
+  // don't gate Visual Kit readiness; only real characters (main child, trusted adult,
+  // companion/object) do.
+  const paintableCharacters = book.characters.filter((c) => !isSymbolicMotif(c));
+  const symbolicMotifCharacters = book.characters.filter((c) => isSymbolicMotif(c));
   const visualKitReady = !!(
-    book.visualKit && book.visualKit.settingImg && book.visualKit.styleSampleImg &&
-    book.characters.length && book.characters.every((c) => c.img)
+    book.visualKit && book.visualKit.settingImg && book.visualKit.styleSampleImg && book.visualKit.sceneAnchorImg &&
+    paintableCharacters.length && paintableCharacters.every((c) => c.img)
   );
   const visualKitApproved = !!book.visualKitApproved;
 
@@ -4209,6 +4288,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       // let an unlocked dog/creature appear on pages 11-12 and 25 of the trial book — see
       // the advisory check below.)
       for (let i = 0; i < book.characters.length; i++) {
+        if (isSymbolicMotif(book.characters[i])) continue; // symbolic motif — no portrait, see isSymbolicMotif
         if (!book.characters[i].img) {
           const url = await genCharacterPortrait(book.characters[i], styleGuide, seed);
           setChar(i, { img: url });
@@ -4218,9 +4298,14 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       const settingImg = await genSettingReference(styleGuide, settingDesc, seed);
       const sampleScene = STYLE_SAMPLE_SCENES[Math.floor(Math.random() * STYLE_SAMPLE_SCENES.length)];
       const styleSampleImg = await genStyleSample(styleGuide, sampleScene, seed);
+      // The Scene Anchor — protagonist actually placed in the setting, full composition —
+      // is what page 1 anchors to instead of the isolated portrait (see genSceneAnchor and
+      // the page-1 referenceImageUrl logic in paintPageWithConsistency).
+      const protagonist = protagonistCharacter(book.characters);
+      const sceneAnchorImg = await genSceneAnchor(protagonist, styleGuide, settingDesc, seed);
       // Rebuilding the kit always clears approval — a regenerated reference image needs
       // a fresh look before it's trusted as the anchor for every page again.
-      setBook((b) => ({ ...b, visualKit: { settingDesc, settingImg, styleSampleImg, builtAt: new Date().toISOString() }, visualKitApproved: false }));
+      setBook((b) => ({ ...b, visualKit: { settingDesc, settingImg, styleSampleImg, sceneAnchorImg, builtAt: new Date().toISOString() }, visualKitApproved: false }));
     } catch (e) {
       setVkErr((e && e.message) || "Visual Kit generation failed — try again.");
     } finally {
@@ -4690,7 +4775,19 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                   </p>
                 ) : null}
 
+                {symbolicMotifCharacters.length ? (
+                  <p className="fine">
+                    Treating as a visual motif, not a character — no portrait, never painted as a person: {symbolicMotifCharacters.map((c) => c.name).join(", ")}.
+                  </p>
+                ) : null}
+
                 <div className="char-row" style={{ alignItems: "flex-start" }}>
+                  <div className="char-row-id">
+                    <div className="coll-portrait" style={{ width: 56, height: 56 }} title="Opening scene reference">
+                      {book.visualKit?.sceneAnchorImg ? <img src={book.visualKit.sceneAnchorImg} alt="Opening scene reference" /> : <span className="coll-portrait-fallback">?</span>}
+                    </div>
+                    <span className="char-name" style={{ display: "flex", alignItems: "center" }}>Opening scene reference</span>
+                  </div>
                   <div className="char-row-id">
                     <div className="coll-portrait" style={{ width: 56, height: 56 }} title="Setting">
                       {book.visualKit?.settingImg ? <img src={book.visualKit.settingImg} alt="Setting" /> : <span className="coll-portrait-fallback">?</span>}
@@ -4723,7 +4820,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                 </div>
                 {!visualKitReady ? (
                   <p className="fine" style={{ marginTop: 6 }}>
-                    Generate a portrait for every character above first (or click "generate Visual Kit" and it'll fill any missing ones in automatically), then the setting and style images complete the set.
+                    Generate a portrait for every character above first (or click "generate Visual Kit" and it'll fill any missing ones in automatically) — then the opening scene, setting, and style images complete the set. Symbolic motifs (like a feeling or an inner light) don't need a portrait.
                   </p>
                 ) : null}
               </div>
