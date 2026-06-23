@@ -2356,7 +2356,6 @@ async function paintPageWithConsistency({
     const sceneText = (isRevision || isFullRepaintReq)
       ? `${page.text}\n\nRevision note from the author — apply this exact change: ${feedback}`
       : page.text;
-    const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum: (pageIndex || 0) + 1 });
 
     // A trained style LoRA takes priority over any reference image — it locks style and
     // identity at the model level instead of fighting a single image-to-image strength dial.
@@ -2368,10 +2367,23 @@ async function paintPageWithConsistency({
     // reason "fix one small detail" requests could come back as a different scene
     // altogether — the model had never been shown the picture being revised. Only
     // applies when there's no LoRA (a LoRA already anchors identity/style on its own).
+    //
+    // Pivot (Jace QA thread, "Children's Books on Hardships," after 0.75 and 0.85
+    // strength-only tests both FAILED live on Page 2 — confirmed near-clones of Page 1
+    // regardless of strength in the 0.55-0.85 range, just with cosmetic furniture swaps
+    // at 0.85): Page 1's own painted result is too specific a reference for pages 2+ —
+    // it is one exact composition, so img2img keeps replaying it no matter the strength
+    // dial. Pages 2+ now anchor to the same Opening Scene Anchor used for Page 1 instead
+    // (broader: same world/style/character vibe, without "this exact page happened"),
+    // and the prompt itself now carries an explicit anti-copy / new-composition
+    // instruction (see visualKitNote below) so the page's own text — not the reference
+    // image — drives composition. If this still clones, the next step per Jace is a
+    // trained per-book LoRA or two-step (compose-then-identity-refine) generation,
+    // not another reference/strength tweak on this same branch.
     let referenceImageUrl = null;
     let usedOwnPageAsReference = false;
     let usedVisualKitAssetAsReference = false;
-    let usedPage1AsContinuityReference = false;
+    let usedSceneAnchorContinuityReference = false;
     if (!loraUrl) {
       if (isRevision && page.img) {
         referenceImageUrl = page.img;
@@ -2388,12 +2400,14 @@ async function paintPageWithConsistency({
           referenceImageUrl === vk.sceneAnchorImg || referenceImageUrl === vk.settingImg || referenceImageUrl === vk.styleSampleImg
         );
       } else {
-        // Pages 2+ anchor to page 1's own painted result — the single continuity
-        // anchor for the whole book (per-page reference, not a generic "some other
-        // page") until a real multi-reference or per-book LoRA method exists.
+        // Pages 2+ now anchor to the same Opening Scene Anchor as Page 1 — NOT page 1's
+        // own painted result (that was the strategy that failed at 0.55/0.75/0.85, see
+        // pivot note above). Falls back to page 1's image only if no Scene Anchor exists
+        // (older books without a Visual Kit).
+        const vk = book.visualKit || {};
         const page1 = book.pages[0];
-        referenceImageUrl = (page1 && page1.img) || otherPageImgs[0] || null;
-        usedPage1AsContinuityReference = !!referenceImageUrl && referenceImageUrl === (page1 && page1.img);
+        referenceImageUrl = vk.sceneAnchorImg || vk.settingImg || vk.styleSampleImg || (page1 && page1.img) || otherPageImgs[0] || null;
+        usedSceneAnchorContinuityReference = !!referenceImageUrl;
       }
     }
 
@@ -2402,25 +2416,34 @@ async function paintPageWithConsistency({
     // setting, style sample) are reference *material* for a brand-new page, not a page
     // being redrawn — strength here means "how much the output may diverge from the
     // reference," so they need a HIGHER strength than the page-to-page default, giving
-    // the model real freedom to compose page 1's actual scene while still leaning on the
-    // Scene Anchor for identity/setting/style. Pages 2+ referencing page 1's fully-painted
-    // result had the same over-anchoring problem one level downstream: default strength
-    // (0.55) treated page 1 as "redraw this," producing near-duplicate compositions
-    // regardless of each page's own text (confirmed live — see task #262/#263). Raised to
-    // 0.75 first — live-tested on Page 2, still a near-clone of page 1 (no behavior change
-    // from 0.55). Raising further to 0.85 as an isolated single-variable test (prompt
-    // unchanged) per Jace's instruction in the "Children's Books on Hardships" QA thread,
-    // to determine whether the strength lever has any real effect at all in this range
-    // before also touching the per-page scene prompt. If 0.85 is still a clone, stop
-    // treating page1-image2image as the continuity strategy and move to prompt-driven
-    // scene-change injection instead.
+    // the model real freedom to compose the page's actual scene while still leaning on
+    // the Scene Anchor for identity/setting/style. Pages 2+ now use the same Scene-Anchor
+    // strength tier as Page 1's reasoning, started at 0.85 per Jace's instruction (the
+    // value already tested and found insufficient on the OLD page1-as-reference branch,
+    // now paired with both a broader reference image AND the anti-copy prompt rule below
+    // — three changes bundled deliberately here per Jace's explicit go-ahead, since the
+    // strength-only isolation path was already exhausted and ruled out on its own).
     const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq
       ? 0.32
       : usedVisualKitAssetAsReference
       ? 0.8
-      : usedPage1AsContinuityReference
+      : usedSceneAnchorContinuityReference
       ? 0.85
       : undefined;
+
+    // Anti-copy / new-composition prompt rule (Jace QA thread pivot) — only for pages
+    // 2+ that are not revisions. Generalized from Jace's Page-2-specific draft: rather
+    // than hand-writing a scene beat per page (won't scale to 24 pages), the rule tells
+    // the model the reference image is for IDENTITY/STYLE ONLY and that composition must
+    // come from this page's own SCENE text above, which already varies per page.
+    const visualKitNote = (usedSceneAnchorContinuityReference && !isRevision && !isFullRepaintReq)
+      ? [
+          `COMPOSITION RULE FOR THIS PAGE: Do not copy the pose, camera angle, or composition from the reference image — the reference image is for character identity, room/world style, and colour palette ONLY. Create a brand-new composition that specifically illustrates the SCENE described above for THIS page, not a repeat of any other page's layout.`,
+          `Do not show text, letters, captions, speech bubbles, signs, labels, panels, collage, or character-sheet layouts.`,
+        ].join(" ")
+      : "";
+
+    const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum: (pageIndex || 0) + 1, visualKitNote });
 
     const imgRes = await fetch("/api/image", {
       method: "POST", headers: { "Content-Type": "application/json" },
