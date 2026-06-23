@@ -2273,7 +2273,11 @@ function assertBatchPaintConfirmed({ pageIds, confirmedByUser, source }) {
 // This heuristic flags those entries by name/description so they're treated as a visual
 // motif/style note instead of a paintable character — no generated portrait, and never
 // listed as a person in a page's character manifest.
-const SYMBOLIC_MOTIF_WORDS = /\b(feeling|feelings|inner light|inner glow|inner voice|worry|worries|safety|memory|memories|quiet place|heavy words|emotion|emotions|emotional state|emotional states)\b/i;
+// Deliberately multi-word/distinctive phrases only — single common words like "feeling"
+// or "safety" show up constantly in ordinary character descriptions (e.g. Pip's own bible
+// entry: "big feelings without drama") and would misclassify the protagonist as a motif.
+// Confirmed live: the first version of this list did exactly that.
+const SYMBOLIC_MOTIF_WORDS = /\b(inner light|inner glow|inner voice|quiet place|heavy words|emotional state|emotional states)\b/i;
 function isSymbolicMotif(character) {
   if (!character) return false;
   const text = `${character.name || ""} ${character.desc || ""} ${character.role || ""}`;
