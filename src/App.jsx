@@ -1997,23 +1997,51 @@ async function deriveCharactersFromImages(dataUrls, existingChars) {
   return parseLooseArray(text);
 }
 
+// Part of the Visual Kit (see buildVisualKit) — this is the "character sheet" for one
+// character: a single clean reference portrait, NOT a multi-pose model sheet. Used both
+// for the Characters-tab portrait and, once generated, as the literal image-to-image
+// reference for that character's first page appearance.
 async function genCharacterPortrait(character, styleGuide, seed) {
   const prompt = [
     `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
     ``,
-    `Create a single character reference portrait — one character only, shown clearly from the chest up, on a simple plain background with no scene or props beyond what's needed to show them.`,
+    SINGLE_IMAGE_FORMAT_RULE,
     ``,
-    `CHARACTER: ${character.name} — ${character.desc}`,
+    `Create a single character reference portrait — one character only, shown clearly from the chest up, on a simple plain background with no scene or props beyond what's needed to show them. This is one picture of one pose, not a sheet of multiple poses or angles.`,
+    ``,
+    `CHARACTER (exact, paintable detail — hair, skin tone, exact clothing items/colours, any accessory): ${character.name} — ${character.desc}`,
+    ``,
+    NO_TEXT_RULE,
     ``,
     `CONSISTENCY RULES: This image locks how ${character.name} looks in every future page — exact face, hair, skin tone, and clothing must be reusable as a reference.`,
   ].join("\n");
-  const negative_prompt = [
-    "photo realistic", "3d render", "multiple characters", "text", "watermark",
-    "cartoon", "anime", "adult content", "violence", "scary imagery",
-  ].join(", ");
   const res = await fetch("/api/image", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, seed, negative_prompt }),
+    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data.url;
+}
+
+// Part of the Visual Kit — a single character-free reference image locking the book's
+// setting/location so pages set in "the same room/yard/etc." stay visually consistent
+// instead of each page inventing its own version of the place from text alone.
+async function genSettingReference(styleGuide, settingDesc, seed) {
+  const prompt = [
+    `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
+    ``,
+    SINGLE_IMAGE_FORMAT_RULE,
+    ``,
+    `Create a single reference illustration of this book's setting/location only — no named characters in it. This locks what the place looks like (layout, furniture, colours, light) so every page set here matches it.`,
+    ``,
+    `SETTING: ${settingDesc || "a warm, cozy home"}`,
+    ``,
+    NO_TEXT_RULE,
+  ].join("\n");
+  const res = await fetch("/api/image", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -2030,17 +2058,15 @@ async function genStyleSample(styleGuide, sceneIdea, seed) {
   const prompt = [
     `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
     ``,
+    SINGLE_IMAGE_FORMAT_RULE,
+    ``,
     `Create a single picture-book illustration, with no named characters, in this exact style, depicting: ${sceneIdea}.`,
     ``,
-    `No text, no letters, no watermark — illustration only.`,
+    NO_TEXT_RULE,
   ].join("\n");
-  const negative_prompt = [
-    "text", "letters", "words", "writing", "watermark", "photo realistic", "3d render",
-    "adult content", "violence", "scary imagery",
-  ].join(", ");
   const res = await fetch("/api/image", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, seed, negative_prompt }),
+    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -2081,11 +2107,27 @@ async function checkStyleTrainingStatus(requestId) {
 }
 
 // Picks a page-number rendering style that matches the book's visual aesthetic.
+// Single source of truth for "this must be ONE coherent picture, not a layout of several."
+// Added after a live trial produced multi-panel "concept board" pages instead of single
+// illustrations, and fake lettering baked into the art (signs/speech-bubbles/posters) that
+// the older text-ban list didn't cover because it only named plain typography, not text
+// rendered as an in-scene object. Shared by every image-generating prompt in this file
+// (page art, character portraits, style samples, setting references) so the rule can't
+// drift out of sync between them.
+const SINGLE_IMAGE_FORMAT_RULE = "FORMAT (locked, non-negotiable): exactly ONE single continuous illustration — one moment, one coherent scene, full bleed. NEVER a collage, grid, multi-panel layout, comic strip, storyboard, concept-art board, reference/model sheet with multiple poses or angles, or a split-screen of separate scenes stitched together.";
+
+const NO_TEXT_RULE = "No text, letters, words, numbers, captions, titles, or lettering of any kind anywhere in the image. This includes signs, signage, speech bubbles, dialogue bubbles, posters, labels, nameplates, name tags, and any gibberish or fake writing made to look like text. The picture must read entirely through imagery — nothing is ever communicated through rendered text.";
+
 const ILLUSTRATION_NEGATIVE_PROMPT = [
   "photo realistic", "3d render", "different clothing", "different hair", "different skin tone",
   "inconsistent character", "style change", "different art style", "cartoon", "anime",
   "changed proportions", "adult content", "violence", "scary imagery",
   "text", "letters", "words", "writing", "typography", "caption", "numbers", "watermark", "title card",
+  "multiple panels", "panel grid", "comic panels", "comic strip", "collage", "grid layout",
+  "character sheet", "model sheet", "reference sheet", "concept art board", "concept board",
+  "storyboard", "split screen", "multiple scenes in one image", "turnaround sheet",
+  "speech bubble", "dialogue bubble", "sign", "signage", "poster", "label", "nameplate",
+  "gibberish text", "fake text", "nonsense writing", "close-up portrait crop",
 ].join(", ");
 
 // Builds the full locked, consistency-enforced prompt sent to /api/image for one page.
@@ -2094,18 +2136,22 @@ const ILLUSTRATION_NEGATIVE_PROMPT = [
 // in the same font/position/style on every single page, every time, with no chance of a typo
 // or drift. Asking a diffusion model to paint exact words is unreliable even on good models,
 // so the illustration's only job is the picture — no lettering, titles, or numerals at all.
-function buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum }) {
+function buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum, visualKitNote }) {
   return [
     `STYLE (locked, must not change between pages): ${styleGuide}`,
     ``,
-    `CHARACTERS (locked, exact appearance must be identical on every page):`,
+    SINGLE_IMAGE_FORMAT_RULE,
+    ``,
+    `CHARACTERS (locked identity — match these exact appearances with zero deviation on every page: hair style/colour, skin tone, exact clothing items and colours, and any accessory or companion object must be identical to how they are described here and to the reference image provided):`,
     charManifest,
     ``,
-    `SCENE (this page only): ${sceneText}`,
+    `SCENE (this page only — illustrate this specific moment, not a generic pose of the characters): ${sceneText}`,
     ``,
-    `IMPORTANT: Illustration only — no text, letters, words, numbers, captions, titles, or lettering of any kind anywhere in the image. The story text and page number are added separately afterward in a fixed, consistent style; the artwork must not attempt to render them.`,
+    visualKitNote || "",
     ``,
-    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages is essential.`,
+    `IMPORTANT: Illustration only — ${NO_TEXT_RULE}. The story text and page number are added separately afterward in a fixed, consistent style; the artwork must not attempt to render them.`,
+    ``,
+    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages, and with the reference image supplied, is essential.`,
   ].join("\n");
 }
 
@@ -2185,6 +2231,16 @@ function assertBatchPaintConfirmed({ pageIds, confirmedByUser, source }) {
 //                      because clicking "generate image" or sending one chat request
 //                      IS the confirmation for that one image.
 //   isBatch         — true when this call is part of a multi-page loop.
+// Picks the protagonist (main child) out of a character list so page-1 painting can
+// anchor to their Visual Kit portrait specifically, not just "whoever is first." Falls
+// back to the first character when no role is tagged, since manually-added characters
+// (via the Characters tab "+ Add a character" button) have no role field at all.
+function protagonistCharacter(characters) {
+  if (!Array.isArray(characters) || !characters.length) return null;
+  const byRole = characters.find((c) => /\b(main|protagonist|child)\b/i.test(c.role || ""));
+  return byRole || characters[0];
+}
+
 async function paintPageWithConsistency({
   book, setBook, collection, page, pageIndex,
   feedback,
@@ -2256,8 +2312,18 @@ async function paintPageWithConsistency({
       if (isRevision && page.img) {
         referenceImageUrl = page.img;
         usedOwnPageAsReference = true;
+      } else if ((pageIndex || 0) === 0) {
+        // Page 1 is the book's first real anchor — use the protagonist's approved
+        // Visual Kit portrait so the very first painted page already matches the
+        // locked reference, instead of guessing from an arbitrary other page.
+        const protagonist = protagonistCharacter(activeChars);
+        referenceImageUrl = (protagonist && protagonist.img) || otherPageImgs[0] || null;
       } else {
-        referenceImageUrl = otherPageImgs[0] || null;
+        // Pages 2+ anchor to page 1's own painted result — the single continuity
+        // anchor for the whole book (per-page reference, not a generic "some other
+        // page") until a real multi-reference or per-book LoRA method exists.
+        const page1 = book.pages[0];
+        referenceImageUrl = (page1 && page1.img) || otherPageImgs[0] || null;
       }
     }
 
@@ -3419,6 +3485,13 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
           ? "Let's lock in your Character Bible and art style first — open the Characters tab, check everyone's filled in (and the book's style & feel), then tap \"Lock Character Bible.\" Once that's locked, every page I paint will actually match."
           : "Before we paint, we need to lock the Character Bible and style so the artwork stays consistent. You don't need to know the characters yet — tell me the idea (who it's for, what's going on) and I'll draft a starter Character Bible for you to approve, then we'll lock it before painting.";
         const scriptGateMsg = "Your Bible's locked — good. Now let's finish the full script before any art: write out the pages you want, then use \"Approve script & paint all pages\" in the Page Editor. I'll paint everything in one matching pass right after, instead of page by page.";
+        // Visual Kit gate — separate from the Bible lock. The Bible locks the character
+        // *descriptions*; the Visual Kit locks an actual *reference image* for each named
+        // character plus the setting and style, and is what every page's art is literally
+        // anchored to (image-to-image / page-1-as-anchor). Painting without an approved kit
+        // is exactly how identity drifted across "My Mind Is Mine" — locked text alone wasn't
+        // enough to keep the model's output consistent.
+        const visualKitGateMsg = "One more step before painting: build and approve the Visual Kit on the Characters tab (a reference image for each character, the setting, and the style). Every page's art anchors to those approved images, so this is what actually keeps everyone looking the same from page 1 to the end.";
 
         if (isSyncCharsFromPages) {
           const pageImgs = book.pages.filter((p) => p.img).map((p) => p.img);
@@ -3507,6 +3580,8 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             push("amora", `Saved text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the page builder — open the Page Editor and you'll see it there now. ${lockGateMsg}`, { affectedPageIds: touchedIds });
           } else if (!book.scriptApproved) {
             push("amora", `Saved text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the page builder. ${scriptGateMsg}`, { affectedPageIds: touchedIds });
+          } else if (!book.visualKitApproved) {
+            push("amora", `Saved text for page${namedPages.length > 1 ? "s" : ""} ${namedPages.map(p => p.num).join(", ")} into the page builder. ${visualKitGateMsg}`, { affectedPageIds: touchedIds });
           } else {
             // Fix 2 — text is saved either way, but painting 2+ pages is paid and creative, so it
             // needs the author's explicit go-ahead even though the bible/script gates are open.
@@ -3539,6 +3614,9 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
             ? `Your Bible's locked, and you've already got ${written} page${written > 1 ? "s" : ""} of real text sitting in the Page Editor — open it and tap "Approve script & paint all pages," and I'll paint every one of them from its actual words in a single matching pass.`
             : "I don't have any page text yet to paint from — write out your pages (or paste the full script here) so I have real words to match the art to, then tell me to approve and paint.");
 
+        } else if (isWholeBookImageReq && !book.visualKitApproved) {
+          push("amora", visualKitGateMsg);
+
         } else if (isWholeBookImageReq) {
           // Fix 2 — same reasoning as isMultiPageReq: propose, don't auto-paint.
           const targets = book.pages.map((p, i) => ({ p, i })).filter(({ p }) => p.text && p.text.trim() && !p.img && !p.finishedArt);
@@ -3562,6 +3640,9 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
 
         } else if (isImageReq && !book.scriptApproved) {
           push("amora", scriptGateMsg);
+
+        } else if (isImageReq && !book.visualKitApproved) {
+          push("amora", visualKitGateMsg);
 
         } else if (isImageReq) {
           // A single image is one explicit ask in one message — no separate batch confirmation
@@ -4085,6 +4166,8 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   const [pgUploadBusy, setPgUploadBusy] = useState({}); // page id -> true while reading an author-supplied image
   const pageFileInputs = useRef({}); // page id -> <input type="file"> ref, one per page row
   const drag = useRef(null);
+  const [vkBusy, setVkBusy] = useState(false); // Visual Kit build in progress
+  const [vkErr, setVkErr] = useState("");
 
   // Bible-lock + script-approval gates. Locking is a real workflow state now, not just
   // prompt language — nothing paints until characters + style are filled in and locked,
@@ -4098,6 +4181,69 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
 
   const lockBible = () => { if (bibleReady) setBook((b) => ({ ...b, bibleLocked: true, seed: b.seed || (Math.floor(Math.random() * 900000) + 100000) })); };
   const unlockBible = () => setBook((b) => ({ ...b, bibleLocked: false, scriptApproved: false }));
+
+  // --- Visual Kit -----------------------------------------------------------------
+  // The Bible above locks character *descriptions*. The Visual Kit locks actual
+  // *reference images* — one clean portrait per named character (main child, trusted
+  // adult, companion/object if the story has one), a character-free setting reference,
+  // and a character-free style sample. Page painting anchors to these images (see
+  // paintPageWithConsistency's referenceImageUrl logic), which is what actually keeps
+  // identity/setting/style consistent — locked text alone wasn't enough; that's the
+  // root cause of the identity drift found in the "My Mind Is Mine" live trial.
+  const visualKitReady = !!(
+    book.visualKit && book.visualKit.settingImg && book.visualKit.styleSampleImg &&
+    book.characters.length && book.characters.every((c) => c.img)
+  );
+  const visualKitApproved = !!book.visualKitApproved;
+
+  const buildVisualKit = async () => {
+    if (vkBusy || !bibleLocked) return;
+    setVkBusy(true); setVkErr("");
+    try {
+      const styleGuide = collection?.styleGuide || book.derivedStyle || book.styleGuide || "";
+      let seed = collection?.seed || book.seed;
+      if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
+      // One reference portrait per named character — main child, trusted adult, and any
+      // companion/object that's already a real Character Bible entry. (A companion only
+      // mentioned in passing in the story text, never added here, is exactly the gap that
+      // let an unlocked dog/creature appear on pages 11-12 and 25 of the trial book — see
+      // the advisory check below.)
+      for (let i = 0; i < book.characters.length; i++) {
+        if (!book.characters[i].img) {
+          const url = await genCharacterPortrait(book.characters[i], styleGuide, seed);
+          setChar(i, { img: url });
+        }
+      }
+      const settingDesc = (book.bible && book.bible.setting) || book.setting || "";
+      const settingImg = await genSettingReference(styleGuide, settingDesc, seed);
+      const sampleScene = STYLE_SAMPLE_SCENES[Math.floor(Math.random() * STYLE_SAMPLE_SCENES.length)];
+      const styleSampleImg = await genStyleSample(styleGuide, sampleScene, seed);
+      // Rebuilding the kit always clears approval — a regenerated reference image needs
+      // a fresh look before it's trusted as the anchor for every page again.
+      setBook((b) => ({ ...b, visualKit: { settingDesc, settingImg, styleSampleImg, builtAt: new Date().toISOString() }, visualKitApproved: false }));
+    } catch (e) {
+      setVkErr((e && e.message) || "Visual Kit generation failed — try again.");
+    } finally {
+      setVkBusy(false);
+    }
+  };
+
+  const approveVisualKit = () => { if (visualKitReady) setBook((b) => ({ ...b, visualKitApproved: true })); };
+  const unapproveVisualKit = () => setBook((b) => ({ ...b, visualKitApproved: false }));
+
+  // Lightweight, advisory-only heuristic: if the page text mentions a common
+  // companion/comfort-object noun that isn't any named character's name, flag it. This
+  // is a word-list guess, not real NLP — it never blocks the kit, it just surfaces the
+  // exact failure mode Kirby found (an animal/companion that was never visually locked)
+  // so the author can decide whether to add it as a real Character Bible entry.
+  const unlockedCompanionWarning = (() => {
+    const names = book.characters.map((c) => (c.name || "").toLowerCase()).filter(Boolean);
+    const words = ["dog", "puppy", "cat", "kitten", "bear", "teddy", "rabbit", "bunny", "blanket",
+      "stuffed animal", "stuffie", "companion", "pet", "creature", "fox", "owl", "bird"];
+    const allText = book.pages.map((p) => p.text || "").join(" ").toLowerCase();
+    const hit = words.find((w) => allText.includes(w) && !names.some((n) => n && (w.includes(n) || n.includes(w))));
+    return hit || null;
+  })();
 
   const setPage = (id, patch) => setBook((b) => ({ ...b, pages: b.pages.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
   const addPage = () => setBook((b) => ({ ...b, pages: [...b.pages, { id: newId(), text: "", img: "" }] }));
@@ -4177,6 +4323,10 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
       setPgImgErr((prev) => ({ ...prev, [p.id]: "Finish and approve the full script first — use \"Approve script & paint all pages\" below." }));
       return false;
     }
+    if (!visualKitApproved) {
+      setPgImgErr((prev) => ({ ...prev, [p.id]: "Build and approve the Visual Kit (Characters tab) before painting any pages — that's what anchors every page's art to the same faces, setting, and style." }));
+      return false;
+    }
     return paintPage(p, i, feedback, opts);
   };
 
@@ -4185,19 +4335,34 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
   // Clicking this button IS the explicit confirmation for this batch (Fix 2's guardrail
   // exists for chat-triggered batches that have no equivalent deliberate click).
   const approveAndPaintAll = async () => {
-    if (!bibleLocked || !hasScript || batchBusy) return;
-    assertBatchPaintConfirmed({ pageIds: book.pages.map((p) => p.id), confirmedByUser: true, source: "book_editor_approve_all" });
+    if (!bibleLocked || !hasScript || !visualKitApproved || batchBusy) return;
+    // Checkpoint: the first time a book paints in batch, only pages 1-4 are generated.
+    // The author has to look at those four — same Pip, same trusted adult, single full-
+    // page scenes, no embedded text — and explicitly run this again to unlock the rest.
+    // This is the direct fix for "instant 24-page book, never actually checked" — the
+    // exact gap that let identity drift and concept-board pages reach a finished PDF
+    // before anyone looked at a single image.
+    const isCheckpointRun = !book.fourPageCheckpointPassed && book.pages.length > 4;
+    const pagesToPaint = isCheckpointRun ? book.pages.slice(0, 4) : book.pages;
+    assertBatchPaintConfirmed({ pageIds: pagesToPaint.map((p) => p.id), confirmedByUser: true, source: "book_editor_approve_all" });
     setBatchBusy(true);
     setBook((b) => ({ ...b, scriptApproved: true }));
-    setBatchNote(`Painting ${book.pages.length} pages…`);
+    setBatchNote(isCheckpointRun
+      ? `Painting pages 1–4 first so you can check visual coherence before the rest of the book…`
+      : `Painting ${pagesToPaint.length} pages…`);
     let done = 0, failed = 0;
-    for (let i = 0; i < book.pages.length; i++) {
-      const p = book.pages[i];
-      setBatchNote(`Painting page ${i + 1} of ${book.pages.length}…`);
+    for (let i = 0; i < pagesToPaint.length; i++) {
+      const p = pagesToPaint[i];
+      setBatchNote(`Painting page ${i + 1} of ${pagesToPaint.length}…`);
       const ok = await paintPage(p, i, undefined, { isBatch: true, confirmedByUser: true, source: "book_editor_approve_all" });
       if (ok) done++; else failed++;
     }
-    setBatchNote(`Done — ${done} page${done === 1 ? "" : "s"} painted${failed ? `, ${failed} need a retry from the page editor` : ""}.`);
+    if (isCheckpointRun) {
+      if (done > 0) setBook((b) => ({ ...b, fourPageCheckpointPassed: true }));
+      setBatchNote(`Done — pages 1–4 painted (${done} ok${failed ? `, ${failed} need a retry` : ""}). Check: is Pip the same child on every page? Is the trusted adult the same person? Is each page one single illustration, not a collage or panels? Any text baked into the art? Once it actually looks right, click "Approve script & paint all pages" again to paint the rest of the book.`);
+    } else {
+      setBatchNote(`Done — ${done} page${done === 1 ? "" : "s"} painted${failed ? `, ${failed} need a retry from the page editor` : ""}.`);
+    }
     setBatchBusy(false);
   };
   const setChar = (i, patch) => setBook((b) => ({ ...b, characters: b.characters.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
@@ -4309,6 +4474,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
           return (
             <div className="fine" style={{ display: "flex", flexWrap: "wrap", gap: 14, margin: "2px 0 16px", padding: "8px 0", borderTop: "1px solid #eee", borderBottom: "1px solid #eee" }}>
               <span><strong>Bible:</strong> {bibleLocked ? "locked" : bibleReady ? "drafted, not locked" : "not started"}</span>
+              <span><strong>Visual Kit:</strong> {visualKitApproved ? "approved" : visualKitReady ? "built, not approved" : "not built"}</span>
               <span><strong>Script:</strong> {book.pages.length} page{book.pages.length === 1 ? "" : "s"}{scriptApproved ? ", approved" : ", not approved"}</span>
               <span><strong>Art:</strong> {painted} of {book.pages.length} painted</span>
               {finishedCount ? <span><strong>Finished uploads:</strong> {finishedCount}</span> : null}
@@ -4330,9 +4496,16 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
                 )}
               </div>
               {bibleLocked && !scriptApproved ? (
-                <button className="btn-gold full" style={{ marginBottom: 14 }} disabled={!hasScript || batchBusy} onClick={approveAndPaintAll}>
-                  {batchBusy ? (batchNote || "Painting…") : hasScript ? "Approve script & paint all pages" : "Write text for every page first"}
-                </button>
+                <>
+                  {!visualKitApproved ? (
+                    <p className="fine" style={{ color: "#9E4A44", marginTop: 0 }}>
+                      Build and approve your Visual Kit on the Characters tab first — every page's art anchors to those reference images, so painting stays blocked until that's approved.
+                    </p>
+                  ) : null}
+                  <button className="btn-gold full" style={{ marginBottom: 14 }} disabled={!hasScript || batchBusy || !visualKitApproved} onClick={approveAndPaintAll}>
+                    {batchBusy ? (batchNote || "Painting…") : !visualKitApproved ? "Approve the Visual Kit first (Characters tab)" : hasScript ? "Approve script & paint all pages" : "Write text for every page first"}
+                  </button>
+                </>
               ) : null}
               <p className="fine" style={{ marginTop: 0 }}>Drag pages by the handle to reorder. Each page has its own Amora chat right below it.</p>
               {book.pages.map((p, i) => (
@@ -4503,6 +4676,58 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
               </div>
             ))}
             {!bibleLocked ? <button className="btn-line dark" onClick={addChar}>+ Add a character</button> : null}
+
+            {bibleLocked ? (
+              <div className="visualkit" style={{ marginTop: 28, paddingTop: 20, borderTop: "1px solid #E8DFD2" }}>
+                <h4 style={{ margin: "0 0 6px" }}>Visual Kit</h4>
+                <p className="fine" style={{ marginTop: 0 }}>
+                  Before any page gets painted, this locks one reference image each for your setting and your style — on top of the character portraits above — and you approve the whole set. Every page's art then anchors to these exact images instead of guessing from text alone, which is what keeps Pip (and everyone else) looking like the same person from page 1 to the end.
+                </p>
+
+                {unlockedCompanionWarning ? (
+                  <p className="fine" style={{ color: "#9E4A44" }}>
+                    Heads up — the story text mentions "{unlockedCompanionWarning}" but there's no matching character above. If that's a real companion or comfort object that appears on multiple pages, add it as a character first so it gets its own locked portrait and stays consistent too.
+                  </p>
+                ) : null}
+
+                <div className="char-row" style={{ alignItems: "flex-start" }}>
+                  <div className="char-row-id">
+                    <div className="coll-portrait" style={{ width: 56, height: 56 }} title="Setting">
+                      {book.visualKit?.settingImg ? <img src={book.visualKit.settingImg} alt="Setting" /> : <span className="coll-portrait-fallback">?</span>}
+                    </div>
+                    <span className="char-name" style={{ display: "flex", alignItems: "center" }}>Setting / location</span>
+                  </div>
+                  <div className="char-row-id">
+                    <div className="coll-portrait" style={{ width: 56, height: 56 }} title="Style sample">
+                      {book.visualKit?.styleSampleImg ? <img src={book.visualKit.styleSampleImg} alt="Style sample" /> : <span className="coll-portrait-fallback">?</span>}
+                    </div>
+                    <span className="char-name" style={{ display: "flex", alignItems: "center" }}>Style sample</span>
+                  </div>
+                </div>
+
+                {vkErr ? <p className="fine" style={{ color: "#9E4A44" }}>{vkErr}</p> : null}
+
+                <div className="char-row-actions" style={{ marginTop: 10 }}>
+                  <button className="btn-text soft" disabled={vkBusy} onClick={buildVisualKit}>
+                    {vkBusy ? "generating…" : visualKitReady ? "regenerate Visual Kit" : "generate Visual Kit"}
+                  </button>
+                  {visualKitReady && !visualKitApproved ? (
+                    <button className="btn-gold" onClick={approveVisualKit}>Approve Visual Kit</button>
+                  ) : null}
+                  {visualKitApproved ? (
+                    <>
+                      <span className="fine" style={{ color: "#3F6F52", fontWeight: 700 }}>Approved — pages can be painted</span>
+                      <button className="btn-text soft" onClick={unapproveVisualKit}>unapprove</button>
+                    </>
+                  ) : null}
+                </div>
+                {!visualKitReady ? (
+                  <p className="fine" style={{ marginTop: 6 }}>
+                    Generate a portrait for every character above first (or click "generate Visual Kit" and it'll fill any missing ones in automatically), then the setting and style images complete the set.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
