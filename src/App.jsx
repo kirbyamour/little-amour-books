@@ -2171,22 +2171,26 @@ const ILLUSTRATION_NEGATIVE_PROMPT = [
 // in the same font/position/style on every single page, every time, with no chance of a typo
 // or drift. Asking a diffusion model to paint exact words is unreliable even on good models,
 // so the illustration's only job is the picture — no lettering, titles, or numerals at all.
-function buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum, visualKitNote }) {
+function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum, visualKitNote, hasReferenceImage }) {
   return [
     `STYLE (locked, must not change between pages): ${styleGuide}`,
     ``,
     SINGLE_IMAGE_FORMAT_RULE,
     ``,
-    `CHARACTERS (locked identity — match these exact appearances with zero deviation on every page: hair style/colour, skin tone, exact clothing items and colours, and any accessory or companion object must be identical to how they are described here and to the reference image provided):`,
+    `CHARACTERS (locked identity — strict identity block, match these exact appearances with zero deviation on every page: hair style/colour, skin tone, exact clothing items and colours, and any accessory or companion object must be identical to how they are described here on every single page):`,
     charManifest,
     ``,
-    `SCENE (this page only — illustrate this specific moment, not a generic pose of the characters): ${sceneText}`,
+    settingDesc
+      ? `SETTING (locked — strict setting/style block, this is the one fixed place this story happens; reuse these exact details — room type, key furniture, colour palette — on every page, adapting only the framing/angle/action to fit this page's own scene): ${settingDesc}`
+      : "",
+    ``,
+    `SCENE (this page's own explicit scene direction — illustrate THIS specific moment described below, with its own camera angle, framing, and character poses; do not default to any other page's pose or layout): ${sceneText}`,
     ``,
     visualKitNote || "",
     ``,
     `IMPORTANT: Illustration only — ${NO_TEXT_RULE}. The story text and page number are added separately afterward in a fixed, consistent style; the artwork must not attempt to render them.`,
     ``,
-    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages, and with the reference image supplied, is essential.`,
+    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages${hasReferenceImage ? ", and with the reference image supplied," : ""} is essential — achieved here through the locked style/character/setting text and a shared seed, not a per-page reference image.`,
   ].join("\n");
 }
 
@@ -2368,82 +2372,47 @@ async function paintPageWithConsistency({
     // altogether — the model had never been shown the picture being revised. Only
     // applies when there's no LoRA (a LoRA already anchors identity/style on its own).
     //
-    // Pivot (Jace QA thread, "Children's Books on Hardships," after 0.75 and 0.85
-    // strength-only tests both FAILED live on Page 2 — confirmed near-clones of Page 1
-    // regardless of strength in the 0.55-0.85 range, just with cosmetic furniture swaps
-    // at 0.85): Page 1's own painted result is too specific a reference for pages 2+ —
-    // it is one exact composition, so img2img keeps replaying it no matter the strength
-    // dial. Pages 2+ now anchor to the same Opening Scene Anchor used for Page 1 instead
-    // (broader: same world/style/character vibe, without "this exact page happened"),
-    // and the prompt itself now carries an explicit anti-copy / new-composition
-    // instruction (see visualKitNote below) so the page's own text — not the reference
-    // image — drives composition. If this still clones, the next step per Jace is a
-    // trained per-book LoRA or two-step (compose-then-identity-refine) generation,
-    // not another reference/strength tweak on this same branch.
+    // Pivot #2 (Jace QA thread, "Children's Books on Hardships," after Pivot #1 — Scene
+    // Anchor + 0.85 + anti-copy prompt — was tested live on Page 2 and ALSO failed):
+    // confirmed by directly opening the Visual Kit's Opening Scene Anchor image next to
+    // Page 1's painted image that they are themselves near-identical compositions — the
+    // Scene Anchor was never the "broader, less composition-specific" asset it was
+    // assumed to be. That means every image-to-image reference tried (page1.img at
+    // 0.55/0.75/0.85, then the Scene Anchor at 0.85) forced the same window/curtains/
+    // dog-and-boy-pose/camera-angle composition regardless of strength or prompt wording,
+    // because img2img with this backend behaves as a composition copier, not a gentle
+    // consistency guide. Jace's decision: stop using image-to-image as the generation
+    // strategy for NEW story pages entirely (page 1 AND pages 2+, whenever it's not a
+    // revision). New pages are now pure text-to-image — no referenceImageUrl at all —
+    // driven only by the locked style guide, the locked character-identity manifest, the
+    // locked setting description (see settingDesc below, now passed into the prompt since
+    // there's no reference image to carry it visually anymore), this page's own explicit
+    // scene direction, and a fixed seed shared across the whole book/collection (already
+    // established above). Image-to-image is kept ONLY for revisions — anchored to the
+    // page's OWN current image, strength 0.32, unchanged — because a revision's whole
+    // point is "change one thing about THIS exact existing image," which is exactly what
+    // img2img is good at. If text-to-image-only lets character identity drift across
+    // pages, Jace's stated next step is a trained per-book LoRA, not another reference or
+    // strength tweak on this now-abandoned image-to-image-for-new-pages branch.
     let referenceImageUrl = null;
     let usedOwnPageAsReference = false;
-    let usedVisualKitAssetAsReference = false;
-    let usedSceneAnchorContinuityReference = false;
-    if (!loraUrl) {
-      if (isRevision && page.img) {
-        referenceImageUrl = page.img;
-        usedOwnPageAsReference = true;
-      } else if ((pageIndex || 0) === 0) {
-        // Page 1 anchors to the Visual Kit's Scene Anchor — a full scene with the
-        // protagonist already placed in the setting — never the isolated character
-        // portrait. A portrait has no background/composition for image-to-image to vary,
-        // so anchoring to it just reproduced the portrait near-verbatim instead of
-        // painting page 1's actual scene (confirmed live, see genSceneAnchor's comment).
-        const vk = book.visualKit || {};
-        referenceImageUrl = vk.sceneAnchorImg || vk.settingImg || vk.styleSampleImg || otherPageImgs[0] || null;
-        usedVisualKitAssetAsReference = !!referenceImageUrl && (
-          referenceImageUrl === vk.sceneAnchorImg || referenceImageUrl === vk.settingImg || referenceImageUrl === vk.styleSampleImg
-        );
-      } else {
-        // Pages 2+ now anchor to the same Opening Scene Anchor as Page 1 — NOT page 1's
-        // own painted result (that was the strategy that failed at 0.55/0.75/0.85, see
-        // pivot note above). Falls back to page 1's image only if no Scene Anchor exists
-        // (older books without a Visual Kit).
-        const vk = book.visualKit || {};
-        const page1 = book.pages[0];
-        referenceImageUrl = vk.sceneAnchorImg || vk.settingImg || vk.styleSampleImg || (page1 && page1.img) || otherPageImgs[0] || null;
-        usedSceneAnchorContinuityReference = !!referenceImageUrl;
-      }
+    if (!loraUrl && isRevision && page.img) {
+      referenceImageUrl = page.img;
+      usedOwnPageAsReference = true;
     }
 
-    // Minor edits anchor hard to the page's own current image (low strength — change as
-    // little as possible beyond the requested fix). Visual Kit assets (Scene Anchor,
-    // setting, style sample) are reference *material* for a brand-new page, not a page
-    // being redrawn — strength here means "how much the output may diverge from the
-    // reference," so they need a HIGHER strength than the page-to-page default, giving
-    // the model real freedom to compose the page's actual scene while still leaning on
-    // the Scene Anchor for identity/setting/style. Pages 2+ now use the same Scene-Anchor
-    // strength tier as Page 1's reasoning, started at 0.85 per Jace's instruction (the
-    // value already tested and found insufficient on the OLD page1-as-reference branch,
-    // now paired with both a broader reference image AND the anti-copy prompt rule below
-    // — three changes bundled deliberately here per Jace's explicit go-ahead, since the
-    // strength-only isolation path was already exhausted and ruled out on its own).
-    const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq
-      ? 0.32
-      : usedVisualKitAssetAsReference
-      ? 0.8
-      : usedSceneAnchorContinuityReference
-      ? 0.85
-      : undefined;
+    // Revisions still anchor hard to the page's own current image (low strength — change
+    // as little as possible beyond the requested fix). New pages have no reference image
+    // at all now, so there's nothing to set a strength against.
+    const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq ? 0.32 : undefined;
 
-    // Anti-copy / new-composition prompt rule (Jace QA thread pivot) — only for pages
-    // 2+ that are not revisions. Generalized from Jace's Page-2-specific draft: rather
-    // than hand-writing a scene beat per page (won't scale to 24 pages), the rule tells
-    // the model the reference image is for IDENTITY/STYLE ONLY and that composition must
-    // come from this page's own SCENE text above, which already varies per page.
-    const visualKitNote = (usedSceneAnchorContinuityReference && !isRevision && !isFullRepaintReq)
-      ? [
-          `COMPOSITION RULE FOR THIS PAGE: Do not copy the pose, camera angle, or composition from the reference image — the reference image is for character identity, room/world style, and colour palette ONLY. Create a brand-new composition that specifically illustrates the SCENE described above for THIS page, not a repeat of any other page's layout.`,
-          `Do not show text, letters, captions, speech bubbles, signs, labels, panels, collage, or character-sheet layouts.`,
-        ].join(" ")
-      : "";
+    // No reference image for new pages means no "don't copy the reference" note is
+    // needed anymore — composition is driven purely by this page's own SCENE text in the
+    // prompt above, which already varies per page.
+    const visualKitNote = "";
 
-    const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, sceneText, pageNum: (pageIndex || 0) + 1, visualKitNote });
+    const settingDesc = (book.visualKit && book.visualKit.settingDesc) || "";
+    const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum: (pageIndex || 0) + 1, visualKitNote, hasReferenceImage: !!referenceImageUrl });
 
     const imgRes = await fetch("/api/image", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -2454,7 +2423,7 @@ async function paintPageWithConsistency({
     });
     const imgData = await imgRes.json();
     if (imgData.error) {
-      await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, usedVisualKitAssetAsReference, status: "failed", error: imgData.error, authorEmail });
+      await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, status: "failed", error: imgData.error, authorEmail });
       return { ok: false, error: imgData.error };
     }
     if (applyToBookPages && page.id) {
@@ -2466,8 +2435,8 @@ async function paintPageWithConsistency({
         lastUpdatedBy: source, lastUpdatedAt: new Date().toISOString(),
       } : pg)) }));
     }
-    await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, usedVisualKitAssetAsReference, status: "success", authorEmail });
-    return { ok: true, url: imgData.url, usedOwnPageAsReference, usedVisualKitAssetAsReference, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl };
+    await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl, usedOwnPageAsReference, status: "success", authorEmail });
+    return { ok: true, url: imgData.url, usedOwnPageAsReference, loraUsed: !!loraUrl, referenceImageUsed: !!referenceImageUrl };
   } catch (e) {
     await logImageGenerationEvent({ book, page, source, confirmedByUser, isBatch, status: "error", error: (e && e.message) || "unknown", authorEmail });
     return { ok: false, error: "Image generation failed — try again." };
