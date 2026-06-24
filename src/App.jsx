@@ -2181,16 +2181,16 @@ function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, 
     charManifest,
     ``,
     settingDesc
-      ? `SETTING (locked — strict setting/style block, this is the one fixed place this story happens; reuse these exact details — room type, key furniture, colour palette — on every page, adapting only the framing/angle/action to fit this page's own scene): ${settingDesc}`
+      ? `WORLD CONTINUITY (consistent world, NOT a fixed composition or layout to repeat — this describes the kind of world this story lives in, nothing more): ${settingDesc} Do not reuse the same room layout, camera angle, window placement, furniture placement, or pose on every page — the PAGE SCENE below decides this page's actual composition.`
       : "",
     ``,
-    `SCENE (this page's own explicit scene direction — illustrate THIS specific moment described below, with its own camera angle, framing, and character poses; do not default to any other page's pose or layout): ${sceneText}`,
+    `PAGE SCENE (this is what must dominate and drive THIS page's composition — invent a fresh layout, camera angle, and character pose specific to this exact moment; do not default to any other page's pose, camera angle, or room layout): ${sceneText}`,
     ``,
     visualKitNote || "",
     ``,
     `IMPORTANT: Illustration only — ${NO_TEXT_RULE}. The story text and page number are added separately afterward in a fixed, consistent style; the artwork must not attempt to render them.`,
     ``,
-    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages${hasReferenceImage ? ", and with the reference image supplied," : ""} is essential — achieved here through the locked style/character/setting text and a shared seed, not a per-page reference image.`,
+    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages${hasReferenceImage ? ", and with the reference image supplied," : ""} is essential — achieved here through the locked style/character text, the non-compositional world-continuity block, and a shared seed, not a per-page reference image.`,
   ].join("\n");
 }
 
