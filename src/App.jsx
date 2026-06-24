@@ -2200,7 +2200,7 @@ const ILLUSTRATION_NEGATIVE_PROMPT = [
 // making the page-specific scene direction concrete and literal rather than abstract.
 function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum, visualKitNote, hasReferenceImage }) {
   return [
-    `LOCKED ART STYLE — MUST FOLLOW, NO EXCEPTIONS, SAME ON EVERY PAGE: ${styleGuide}. Soft, warm, gentle, child-safe storybook illustration, consistent with every other page in this book. Do NOT switch to photorealism, cinematic rendering, anime, fantasy concept art, painterly/epic lighting, dramatic backlighting, glowing-portal or magical-doorway aesthetics, or silhouette/atmospheric art — even if the scene below suggests an emotional or symbolic moment. The rendering technique, line quality, and colour palette must look like the same artist painted every single page.`,
+    `LOCKED ART STYLE — MUST FOLLOW, NO EXCEPTIONS, SAME ON EVERY PAGE: ${styleGuide}. Soft, warm, gentle, child-safe storybook illustration, consistent with every other page in this book. Keep the illustration grounded, intimate, domestic, and emotionally gentle. Use soft storybook lighting, simple child-safe staging, clear character expressions, and ordinary home details. The image should feel calm, warm, and readable for a young child. The rendering technique, line quality, and colour palette must look like the same artist painted every single page.`,
     ``,
     SINGLE_IMAGE_FORMAT_RULE,
     ``,
