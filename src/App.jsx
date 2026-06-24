@@ -1944,22 +1944,38 @@ async function amora(prompt, system, maxTokens) {
 }
 // Vision pass on existing book page images — extracts a precise style description
 // so every new illustration truly matches the pages already in the book.
+function toClaudeImageBlock(url) {
+  if (!url) return null;
+  const dataMatch = url.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataMatch) return { type: "image", source: { type: "base64", media_type: dataMatch[1], data: dataMatch[2] } };
+  if (/^https?:\/\//.test(url)) return { type: "image", source: { type: "url", url } };
+  return null;
+}
+const REFUSAL_OR_INVALID_TEXT = /\b(i can.?t|i cannot|i don.?t|i do not|no images?( were| was)? (attached|provided|included)|i.?m sorry|i am sorry|as an ai|i.?m unable|i am unable|unable to (see|view|access)|i need (an |some )?image|please (provide|attach|upload))\b/i;
+function isInvalidVisionText(text) {
+  if (!text || typeof text !== "string") return true;
+  const t = text.trim();
+  if (t.length < 30) return true;
+  if (REFUSAL_OR_INVALID_TEXT.test(t)) return true;
+  return false;
+}
+
 async function deriveStyleFromImages(dataUrls) {
   if (!dataUrls.length) return null;
   try {
     const content = [
       { type: "text", text: "These are pages from a children's picture book. Describe the visual art style in 4–5 sentences precise enough for an AI image generator to reproduce it on new pages. Cover: art medium, line quality, colour palette and saturation, rendering technique (flat/textured/painterly), character proportions and facial style, background treatment, mood. Be technical and specific — this description locks the style for every future page." },
-      ...dataUrls.map(url => {
-        const m = url.match(/^data:([^;]+);base64,(.+)$/);
-        return m ? { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } } : null;
-      }).filter(Boolean),
-    ];
+        ...dataUrls.map(toClaudeImageBlock).filter(Boolean),
+      ];
+      if (!content.some((b) => b.type === "image")) return null;
     const res = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 350, messages: [{ role: "user", content }] }),
     });
     const data = await res.json();
-    return data.content?.[0]?.text?.trim() || null;
+const text = data.content?.[0]?.text?.trim() || null;
+      if (isInvalidVisionText(text)) return null;
+      return text;
   } catch (_) { return null; }
 }
 function parseLoose(text) {
@@ -1982,11 +1998,9 @@ async function deriveCharactersFromImages(dataUrls, existingChars) {
     : "(no characters defined yet)";
   const content = [
     { type: "text", text: `These are pages from a children's picture book. The current Character Bible reads:\n${bibleText}\n\nLook closely at how each character actually appears across these pages — face, hair, skin tone, clothing, colours, recurring props. Rewrite the Character Bible so every entry matches the art exactly. Keep the same characters (don't invent new ones unless someone recurring and unnamed clearly needs a name — then pick a fitting one), but correct any detail that drifted from the text description. Return ONLY a JSON array, nothing else: [{"name":"...","desc":"full visual + emotional description, vivid enough to keep every future page consistent"}]` },
-    ...dataUrls.map(url => {
-      const m = url.match(/^data:([^;]+);base64,(.+)$/);
-      return m ? { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } } : null;
-    }).filter(Boolean),
-  ];
+      ...dataUrls.map(toClaudeImageBlock).filter(Boolean),
+    ];
+    if (!content.some((b) => b.type === "image")) throw new Error("No readable page images to compare against.");
   const res = await fetch("/api/chat", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1500, messages: [{ role: "user", content }] }),
@@ -2356,7 +2370,7 @@ async function paintPageWithConsistency({
       : "(no named characters — environment/setting only)";
     let seed = collection ? collection.seed : book.seed;
     if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
-    let styleGuide = book.derivedStyle || (collection && collection.styleGuide) || book.styleGuide || "children's picture book illustration";
+let styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide || (collection && collection.styleGuide) || book.derivedStyle || "children's picture book illustration";
     const otherPageImgs = book.pages.filter((pg) => pg.img && pg.id !== page.id).map((pg) => pg.img).slice(0, 3);
     if (!book.derivedStyle && otherPageImgs.length) {
       const derived = await deriveStyleFromImages(otherPageImgs);
@@ -4312,7 +4326,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
     if (vkBusy || !bibleLocked) return;
     setVkBusy(true); setVkErr("");
     try {
-      const styleGuide = collection?.styleGuide || book.derivedStyle || book.styleGuide || "";
+const styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide || collection?.styleGuide || book.derivedStyle || "";
       let seed = collection?.seed || book.seed;
       if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
       // One reference portrait per named character — main child, trusted adult, and any
@@ -4496,7 +4510,7 @@ function BookEditor({ book, setBook, collection, onBack, onSignOut, onAmora, onP
     setPortraitBusy((b) => ({ ...b, [i]: true }));
     setPortraitErr((prev) => { const n = { ...prev }; delete n[i]; return n; });
     try {
-      const styleGuide = collection?.styleGuide || book.derivedStyle || book.styleGuide || "";
+const styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide || collection?.styleGuide || book.derivedStyle || "";
       let seed = collection?.seed || book.seed;
       if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
       const url = await genCharacterPortrait(c, styleGuide, seed);
