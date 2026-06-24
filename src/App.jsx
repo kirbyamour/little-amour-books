@@ -2158,11 +2158,15 @@ const ILLUSTRATION_NEGATIVE_PROMPT = [
   "inconsistent character", "style change", "different art style", "cartoon", "anime",
   "changed proportions", "adult content", "violence", "scary imagery",
   "text", "letters", "words", "writing", "typography", "caption", "numbers", "watermark", "title card",
+  "signature", "cursive marks", "artist signature", "AI signature", "logo",
   "multiple panels", "panel grid", "comic panels", "comic strip", "collage", "grid layout",
   "character sheet", "model sheet", "reference sheet", "concept art board", "concept board",
   "storyboard", "split screen", "multiple scenes in one image", "turnaround sheet",
   "speech bubble", "dialogue bubble", "sign", "signage", "poster", "label", "nameplate",
   "gibberish text", "fake text", "nonsense writing", "close-up portrait crop",
+  "second child", "extra child", "unestablished character", "random additional person",
+  "glowing portal", "magical doorway", "fantasy forest", "epic fantasy lighting",
+  "dramatic backlight", "silhouette lighting", "painterly cinematic lighting", "concept art lighting",
 ].join(", ");
 
 // Builds the full locked, consistency-enforced prompt sent to /api/image for one page.
@@ -2171,26 +2175,36 @@ const ILLUSTRATION_NEGATIVE_PROMPT = [
 // in the same font/position/style on every single page, every time, with no chance of a typo
 // or drift. Asking a diffusion model to paint exact words is unreliable even on good models,
 // so the illustration's only job is the picture — no lettering, titles, or numerals at all.
+// Pivot #5 (Jace) — Pivot #4 proved the tradeoff: a strict/locked SETTING block kept
+// style/identity but cloned composition every page; de-fanging it into a flexible
+// WORLD CONTINUITY block freed up composition but let the model wander on identity,
+// style, and tone too (Page 2 test: fresh composition, but lost Pip, gained an
+// unestablished second child, drifted into painterly/cinematic style, and left a
+// watermark-like artifact). The fix is not to re-lock composition — it's to make the
+// non-negotiable constraints (identity, style) explicitly hard and explicitly name
+// the failure modes just observed, while keeping world/composition flexible and
+// making the page-specific scene direction concrete and literal rather than abstract.
 function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum, visualKitNote, hasReferenceImage }) {
   return [
-    `STYLE (locked, must not change between pages): ${styleGuide}`,
+    `LOCKED ART STYLE — MUST FOLLOW, NO EXCEPTIONS, SAME ON EVERY PAGE: ${styleGuide}. Soft, warm, gentle, child-safe storybook illustration, consistent with every other page in this book. Do NOT switch to photorealism, cinematic rendering, anime, fantasy concept art, painterly/epic lighting, dramatic backlighting, glowing-portal or magical-doorway aesthetics, or silhouette/atmospheric art — even if the scene below suggests an emotional or symbolic moment. The rendering technique, line quality, and colour palette must look like the same artist painted every single page.`,
     ``,
     SINGLE_IMAGE_FORMAT_RULE,
     ``,
-    `CHARACTERS (locked identity — strict identity block, match these exact appearances with zero deviation on every page: hair style/colour, skin tone, exact clothing items and colours, and any accessory or companion object must be identical to how they are described here on every single page):`,
+    `LOCKED CHARACTER IDENTITY — MUST FOLLOW, NO EXCEPTIONS: the character(s) below are the ONLY people who may appear in this image, with these exact appearances and zero deviation page to page (hair style/colour, skin tone, exact clothing items and colours, age, body type, and any accessory or companion object must be identical to how they are described here on every single page):`,
     charManifest,
+    `Do not add any extra child, extra adult, unexplained second character, or unestablished companion/animal. If a character or companion is not named above, it must not appear in this image at all — not in the background, not partially, not implied.`,
     ``,
     settingDesc
       ? `WORLD CONTINUITY (consistent world, NOT a fixed composition or layout to repeat — this describes the kind of world this story lives in, nothing more): ${settingDesc} Do not reuse the same room layout, camera angle, window placement, furniture placement, or pose on every page — the PAGE SCENE below decides this page's actual composition.`
       : "",
     ``,
-    `PAGE SCENE (this is what must dominate and drive THIS page's composition — invent a fresh layout, camera angle, and character pose specific to this exact moment; do not default to any other page's pose, camera angle, or room layout): ${sceneText}`,
+    `PAGE SCENE — THIS MUST DOMINATE AND DRIVE THIS PAGE'S COMPOSITION: ${sceneText} Invent a fresh layout, camera angle, and character pose specific to this exact moment; do not default to any other page's pose, camera angle, or room layout. Stage this literally and concretely — show it through the character's pose, expression, and immediate surroundings, not through a symbolic dreamscape, portal, doorway, or fantasy setting standing in for the feeling.`,
     ``,
     visualKitNote || "",
     ``,
-    `IMPORTANT: Illustration only — ${NO_TEXT_RULE}. The story text and page number are added separately afterward in a fixed, consistent style; the artwork must not attempt to render them.`,
+    `IMPORTANT: Illustration only — ${NO_TEXT_RULE}. The story text and page number are added separately afterward in a fixed, consistent style; the artwork must not attempt to render them. No signature, watermark, or artist mark of any kind anywhere in the image.`,
     ``,
-    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props. Same colour palette as the style guide. Same art medium and rendering style throughout. This is page ${pageNum} of a series; visual consistency with all other pages${hasReferenceImage ? ", and with the reference image supplied," : ""} is essential — achieved here through the locked style/character text, the non-compositional world-continuity block, and a shared seed, not a per-page reference image.`,
+    `CONSISTENCY RULES: Every character must appear exactly as described above — same face, hair, skin tone, clothing, props, and no extras, no exceptions. Same colour palette and art style as the LOCKED ART STYLE block above, every single page. This is page ${pageNum} of a series; visual consistency with all other pages${hasReferenceImage ? ", and with the reference image supplied," : ""} is enforced here through the locked style and character-identity blocks above, the non-compositional world-continuity block, and a shared seed — not a per-page reference image.`,
   ].join("\n");
 }
 
@@ -2357,9 +2371,19 @@ async function paintPageWithConsistency({
     // strength and whether the old image is shown to the model differ.
     const isFullRepaintReq = Boolean(feedback) && /\b(change the setting|new setting|different setting|replace the (whole )?scene|completely new|brand new (image|scene|picture)|start over|whole new scene|repaint (the )?(whole|entire) page|totally different)\b/i.test(feedback);
     const isRevision = Boolean(feedback) && Boolean(page.img) && !isFullRepaintReq;
+    // Pivot #5 (Jace) — optional concrete staging override. page.text is the printed
+    // story caption (export-locked, never altered for prompt purposes elsewhere in this
+    // file) and is often an emotional metaphor line ("...like a thundercloud sitting
+    // right on your chest") rather than a literal staging description. The Page 2 test
+    // showed the model needs literal blocking (pose, where the symbolic element sits in
+    // frame, what NOT to substitute it with) to avoid wandering into an unrelated fantasy
+    // scene. page.sceneDirection is an optional, separate field — set manually for now
+    // (Page 2 isolation test), intended later to be Amora-generated per page once this
+    // mechanism is proven — that supplies that literal staging without ever touching the
+    // page's real printed text.
     const sceneText = (isRevision || isFullRepaintReq)
       ? `${page.text}\n\nRevision note from the author — apply this exact change: ${feedback}`
-      : page.text;
+      : (page.sceneDirection || page.text);
 
     // A trained style LoRA takes priority over any reference image — it locks style and
     // identity at the model level instead of fighting a single image-to-image strength dial.
