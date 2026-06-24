@@ -2212,7 +2212,7 @@ function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, 
       ? `WORLD CONTINUITY (consistent world, NOT a fixed composition or layout to repeat — this describes the kind of world this story lives in, nothing more): ${settingDesc} Do not reuse the same room layout, camera angle, window placement, furniture placement, or pose on every page — the PAGE SCENE below decides this page's actual composition.`
       : "",
     ``,
-    `PAGE SCENE — THIS MUST DOMINATE AND DRIVE THIS PAGE'S COMPOSITION: ${sceneText} Invent a fresh layout, camera angle, and character pose specific to this exact moment; do not default to any other page's pose, camera angle, or room layout. Stage this literally and concretely — show it through the character's pose, expression, and immediate surroundings, not through a symbolic dreamscape, portal, doorway, or fantasy setting standing in for the feeling.`,
+    `PAGE SCENE — THIS MUST DOMINATE AND DRIVE THIS PAGE'S COMPOSITION: ${sceneText} Invent a fresh layout, camera angle, and character pose specific to this exact moment; do not default to any other page's pose, camera angle, or room layout. Stage this literally and concretely — ground the feeling entirely in the character's pose, expression, and immediate surroundings within their real, ordinary setting.`,
     ``,
     visualKitNote || "",
     ``,
