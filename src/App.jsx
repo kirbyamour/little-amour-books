@@ -2179,8 +2179,6 @@ const ILLUSTRATION_NEGATIVE_PROMPT = [
   "speech bubble", "dialogue bubble", "sign", "signage", "poster", "label", "nameplate",
   "gibberish text", "fake text", "nonsense writing", "close-up portrait crop",
   "second child", "extra child", "unestablished character", "random additional person",
-  "glowing portal", "magical doorway", "fantasy forest", "epic fantasy lighting",
-  "dramatic backlight", "silhouette lighting", "painterly cinematic lighting", "concept art lighting",
 ].join(", ");
 
 // Builds the full locked, consistency-enforced prompt sent to /api/image for one page.
@@ -2364,7 +2362,7 @@ async function paintPageWithConsistency({
     const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
     const charManifest = activeChars.length
       ? activeChars.map((c) => isSymbolicMotif(c)
-          ? `— ${c.name}: this is a symbolic motif, NOT a person or character. Never render as a second child, figure, or additional person. Depict only as a soft warm glow / gentle inner light motif (e.g. warm golden illumination near the protagonist), consistent with its description: ${c.desc}`
+          ? `— ${c.name}: this is a symbolic motif, NOT a person or character. Never render as a second child, figure, or additional person. Depict only as a subtle, comforting warmth felt near the protagonist, a tender, reassuring presence woven softly into the scene, never a separate figure or object. Consistent with its description: ${c.desc}`
           : `— ${c.name}: ${c.desc}`
         ).join("\n")
       : "(no named characters — environment/setting only)";
