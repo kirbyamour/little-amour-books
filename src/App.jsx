@@ -2235,6 +2235,20 @@ function renderSymbolicMotifNote(motifs, cueText) {
   return `EMOTIONAL MOTIF (${names}) — this is the child's felt inner steadiness, not a thing in the room. Show it ONLY as a very small, soft warmth close to Pip's chest, or in Pip's calmer expression and body language. It must NOT become a separate figure, object, additional character, doorway, archway, portal, opening, window, room feature, background element, sky, or any new light source.`;
 }
 
+// Pose-anchor primitives (Storyboard/Pose Anchor pipeline v1). A small library of legible,
+// hand-built line-art pose/composition references used as an img2img anchor for hard emotional
+// pages, so the model stages the body posture (e.g. curled, hand-at-chest) instead of defaulting
+// to a generic standing child. Served from /public on the deployed domain. v1 ships one
+// primitive (the Page 2 proof case).
+const POSE_PRIMITIVES = {
+  curled_hand_chest_heaviness: "/curled-hand-chest-heaviness.png",
+};
+function resolvePoseAnchorUrl(key) {
+  if (!key || !POSE_PRIMITIVES[key]) return null;
+  try { return new URL(POSE_PRIMITIVES[key], window.location.origin).href; }
+  catch (_e) { return POSE_PRIMITIVES[key]; }
+}
+
 function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum, visualKitNote, motifNote, hasReferenceImage }) {
   return [
     `LOCKED ART STYLE — MUST FOLLOW, NO EXCEPTIONS, SAME ON EVERY PAGE: ${styleGuide}. Soft, warm, gentle, child-safe storybook illustration, consistent with every other page in this book. Keep the illustration grounded, intimate, domestic, and emotionally gentle. Use soft storybook lighting, simple child-safe staging, clear character expressions, and ordinary home details. The image should feel calm, warm, and readable for a young child. The rendering technique, line quality, and colour palette must look like the same artist painted every single page.`,
@@ -2403,8 +2417,21 @@ async function paintPageWithConsistency({
     const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
     const physicalChars = activeChars.filter((c) => !isSymbolicMotif(c));
     const symbolicMotifs = activeChars.filter((c) => isSymbolicMotif(c));
-    const charManifest = physicalChars.length
-      ? physicalChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
+    // D2 (bounded, pose-anchor pages only): on a hard emotional page rendered from a pose
+    // anchor, restrict the cast to the protagonist plus any character the page text/sceneDirection
+    // explicitly NAMES. This keeps Page 2 ("internal body-feeling") from being reframed as an
+    // external caregiver-comfort scene by the always-listed "A Trusted Grown-Up". Gated by
+    // poseAnchorRequired, so no other page or book is affected. The general per-page cast-scoping
+    // system remains a separate workstream.
+    let castChars = physicalChars;
+    if (page.poseAnchorRequired) {
+      const castCue = `${page.text || ""} ${page.sceneDirection || ""}`.toLowerCase();
+      const protagonist = protagonistCharacter(physicalChars);
+      castChars = physicalChars.filter((c) => c === protagonist || (c.name && castCue.includes(c.name.toLowerCase())));
+      if (!castChars.length && protagonist) castChars = [protagonist];
+    }
+    const charManifest = castChars.length
+      ? castChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
       : "(no named characters — environment/setting only)";
     const motifCueText = page.sceneDirection || page.text || "";
     const motifNote = renderSymbolicMotifNote(symbolicMotifs, motifCueText);
@@ -2479,10 +2506,23 @@ let styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide
       usedOwnPageAsReference = true;
     }
 
-    // Revisions still anchor hard to the page's own current image (low strength — change
-    // as little as possible beyond the requested fix). New pages have no reference image
-    // at all now, so there's nothing to set a strength against.
-    const strength = usedOwnPageAsReference && isRevision && !isFullRepaintReq ? 0.32 : undefined;
+    // Pose-anchor layer (hard emotional pages): an approved storyboard/pose primitive becomes the
+    // img2img composition reference for the final art, so the model stages the intended posture.
+    // LoRA-agnostic and gated (only when no loraUrl, which also keeps image.js on the img2img
+    // route). This is NOT the abandoned page-1 cloning — the reference is a purpose-built pose map
+    // for an emotionally-specific page.
+    let usedPoseAnchor = false;
+    const poseAnchorUrl = page.poseAnchorUrl || resolvePoseAnchorUrl(page.poseAnchorKey);
+    if (!loraUrl && !usedOwnPageAsReference && page.poseAnchorRequired && page.poseAnchorStatus === "approved" && poseAnchorUrl) {
+      referenceImageUrl = poseAnchorUrl;
+      usedPoseAnchor = true;
+    }
+
+    // Revisions anchor hard to the page's own current image (low strength). Pose-anchor pages use
+    // the calibrated img2img strength. Plain new pages have no reference image.
+    const strength = usedPoseAnchor
+      ? (page.poseAnchorStrength != null ? Number(page.poseAnchorStrength) : 0.72)
+      : (usedOwnPageAsReference && isRevision && !isFullRepaintReq ? 0.32 : undefined);
 
     // No reference image for new pages means no "don't copy the reference" note is
     // needed anymore — composition is driven purely by this page's own SCENE text in the
@@ -2510,7 +2550,7 @@ let styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide
       // fields, so the page list / status panel stay accurate no matter which path
       // (button or chat) just painted it.
       setBook((b) => ({ ...b, pages: b.pages.map((pg) => (pg.id === page.id ? {
-        ...pg, img: imgData.url, artStatus: "painted", imageDirty: false,
+        ...pg, img: imgData.url, finalArtUrl: imgData.url, artStatus: "painted", imageDirty: false,
         lastUpdatedBy: source, lastUpdatedAt: new Date().toISOString(),
       } : pg)) }));
     }
