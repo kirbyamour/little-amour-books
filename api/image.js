@@ -56,7 +56,11 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { prompt, seed, negative_prompt, referenceImageUrl, strength, loraUrl, loraScale, imageSize } = req.body;
+  const { prompt, seed, negative_prompt, referenceImageUrl, strength, loraUrl, loraScale, imageSize, guidance_scale } = req.body;
+  // Per-generation prompt-adherence dial. fal/Flux default 3.5 favors pretty/cozy output;
+  // emotionally-specific pages may need higher obedience to the scene direction. Falls back
+  // to 3.5 when not supplied, so every existing caller is unchanged.
+  const gscale = guidance_scale != null ? Number(guidance_scale) : 3.5;
   // Callers painting book pages rely on the existing portrait_4_3 default (matches the
   // book's page trim). Cover generation is a square trim, so Publishing.jsx passes
   // imageSize: "square_hd" explicitly — without this, covers were generated as 4:3
@@ -83,7 +87,7 @@ export default async function handler(req, res) {
           loras: [{ path: loraUrl, scale: loraScale != null ? Number(loraScale) : 1 }],
           image_size: size,
           num_inference_steps: 28,
-          guidance_scale: 3.5,
+          guidance_scale: gscale,
           num_images: 1,
           enable_safety_checker: true,
         }
@@ -96,7 +100,7 @@ export default async function handler(req, res) {
           // more of the reference's actual background/texture/composition DNA.
           strength: strength != null ? Number(strength) : 0.55,
           num_inference_steps: 40,
-          guidance_scale: 3.5,
+          guidance_scale: gscale,
           num_images: 1,
           enable_safety_checker: true,
         }
@@ -104,7 +108,7 @@ export default async function handler(req, res) {
           prompt,
           image_size: size,
           num_inference_steps: 28,
-          guidance_scale: 3.5,
+          guidance_scale: gscale,
           num_images: 1,
           enable_safety_checker: true,
         };
