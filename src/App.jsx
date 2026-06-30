@@ -2196,7 +2196,46 @@ const ILLUSTRATION_NEGATIVE_PROMPT = [
 // non-negotiable constraints (identity, style) explicitly hard and explicitly name
 // the failure modes just observed, while keeping world/composition flexible and
 // making the page-specific scene direction concrete and literal rather than abstract.
-function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum, visualKitNote, hasReferenceImage }) {
+// --- Symbolic-motif prompt handling (build-time only; never edits stored author data) ---
+// A symbolic motif (e.g. "The Quiet Place Inside") is an emotional, non-physical idea, not a
+// person. The author's stored text may describe it as "a warm glow / gentle light that gets
+// brighter" — that meaning stays in the database untouched. But fed raw into an image prompt,
+// the diffusion model renders it literally as scenery: a glowing doorway/arch/opening/new
+// light source (confirmed live on "My Mind Is Mine" Page 2). These helpers translate the motif
+// into bounded, localized visual language at generation time, and only on pages that call for it.
+
+// Neutralize unbounded glow/luminous style words for the IMAGE PROMPT only. The author's stored
+// styleGuide is never modified. Ordinary domestic lighting words ("soft light", "lighting") are
+// left alone; only scene-wide glow adjectives are softened.
+function sanitizeStyleForImagePrompt(style) {
+  return (style || "")
+    .replace(/\bluminous\b/gi, "gentle")
+    .replace(/\bluminescent\b/gi, "gentle")
+    .replace(/\bglowing\b/gi, "warm")
+    .replace(/\bglows?\b/gi, "warmth")
+    .replace(/\baglow\b/gi, "warm")
+    .replace(/\bbrighter\b/gi, "warmer");
+}
+
+// Does this page actually call for an inner-light / steadiness motif? Only include it when the
+// page's own scene direction or text evokes that theme. Pages about heaviness, confusion, or a
+// tangled feeling must NOT have the inner-light motif injected — it would fight the page's beat.
+function pageEvokesMotif(cueText) {
+  const t = (cueText || "").toLowerCase();
+  const POSITIVE = ["inner light", "inner steadiness", "steadier", "steady", "quiet place inside", "the quiet place", "calmer", "growing calm", "sense of calm", "thoughts belong", "belong to them", "gets brighter", "feels brighter"];
+  return POSITIVE.some((w) => t.includes(w));
+}
+
+// Bounded, localized rendering instruction for an included symbolic motif. It must read as the
+// child's felt inner state — never scenery, architecture, an opening, a sky, a separate figure,
+// or a new light source.
+function renderSymbolicMotifNote(motifs, cueText) {
+  if (!motifs || !motifs.length || !pageEvokesMotif(cueText)) return "";
+  const names = motifs.map((m) => m.name).join(", ");
+  return `EMOTIONAL MOTIF (${names}) — this is the child's felt inner steadiness, not a thing in the room. Show it ONLY as a very small, soft warmth close to Pip's chest, or in Pip's calmer expression and body language. It must NOT become a separate figure, object, additional character, doorway, archway, portal, opening, window, room feature, background element, sky, or any new light source.`;
+}
+
+function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum, visualKitNote, motifNote, hasReferenceImage }) {
   return [
     `LOCKED ART STYLE — MUST FOLLOW, NO EXCEPTIONS, SAME ON EVERY PAGE: ${styleGuide}. Soft, warm, gentle, child-safe storybook illustration, consistent with every other page in this book. Keep the illustration grounded, intimate, domestic, and emotionally gentle. Use soft storybook lighting, simple child-safe staging, clear character expressions, and ordinary home details. The image should feel calm, warm, and readable for a young child. The rendering technique, line quality, and colour palette must look like the same artist painted every single page.`,
     ``,
@@ -2211,6 +2250,8 @@ function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, 
       : "",
     ``,
     `PAGE SCENE — THIS MUST DOMINATE AND DRIVE THIS PAGE'S COMPOSITION: ${sceneText} Invent a fresh layout, camera angle, and character pose specific to this exact moment; do not default to any other page's pose, camera angle, or room layout. Stage this literally and concretely — ground the feeling entirely in the character's pose, expression, and immediate surroundings within their real, ordinary setting.`,
+    ``,
+    motifNote || "",
     ``,
     visualKitNote || "",
     ``,
@@ -2360,12 +2401,13 @@ async function paintPageWithConsistency({
 
   try {
     const activeChars = (collection && Array.isArray(collection.characters) && collection.characters.length ? collection.characters : book.characters) || [];
-    const charManifest = activeChars.length
-      ? activeChars.map((c) => isSymbolicMotif(c)
-          ? `— ${c.name}: this is a symbolic motif, NOT a person or character. Never render as a second child, figure, or additional person. Depict only as a subtle, comforting warmth felt near the protagonist, a tender, reassuring presence woven softly into the scene, never a separate figure or object. Consistent with its description: ${c.desc}`
-          : `— ${c.name}: ${c.desc}`
-        ).join("\n")
+    const physicalChars = activeChars.filter((c) => !isSymbolicMotif(c));
+    const symbolicMotifs = activeChars.filter((c) => isSymbolicMotif(c));
+    const charManifest = physicalChars.length
+      ? physicalChars.map((c) => `— ${c.name}: ${c.desc}`).join("\n")
       : "(no named characters — environment/setting only)";
+    const motifCueText = page.sceneDirection || page.text || "";
+    const motifNote = renderSymbolicMotifNote(symbolicMotifs, motifCueText);
     let seed = collection ? collection.seed : book.seed;
     if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
 let styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide || (collection && collection.styleGuide) || book.derivedStyle || "children's picture book illustration";
@@ -2448,7 +2490,8 @@ let styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide
     const visualKitNote = "";
 
     const settingDesc = (book.visualKit && book.visualKit.settingDesc) || "";
-    const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum: (pageIndex || 0) + 1, visualKitNote, hasReferenceImage: !!referenceImageUrl });
+    const styleForPrompt = sanitizeStyleForImagePrompt(styleGuide);
+    const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide: styleForPrompt, charManifest, settingDesc, sceneText, pageNum: (pageIndex || 0) + 1, visualKitNote, motifNote, hasReferenceImage: !!referenceImageUrl });
 
     const imgRes = await fetch("/api/image", {
       method: "POST", headers: { "Content-Type": "application/json" },
