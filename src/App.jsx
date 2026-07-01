@@ -2240,13 +2240,16 @@ function renderSymbolicMotifNote(motifs, cueText) {
 // pages, so the model stages the body posture (e.g. curled, hand-at-chest) instead of defaulting
 // to a generic standing child. Served from /public on the deployed domain. v1 ships one
 // primitive (the Page 2 proof case).
+// Hosted at a public, anonymously-fetchable URL. The image-to-image backend (fal) fetches the
+// reference server-side and CANNOT reach Vercel deployment-protected asset URLs (confirmed:
+// same asset 404s for fal from the Vercel origin but fetches fine from raw GitHub). Interim host
+// is the repo's raw GitHub path; move to a dedicated public CDN/bucket later. The PNG also lives
+// in /public for in-app display.
 const POSE_PRIMITIVES = {
-  curled_hand_chest_heaviness: "/curled-hand-chest-heaviness.png",
+  curled_hand_chest_heaviness: "https://raw.githubusercontent.com/kirbyamour/little-amour-books/main/public/curled-hand-chest-heaviness.png",
 };
 function resolvePoseAnchorUrl(key) {
-  if (!key || !POSE_PRIMITIVES[key]) return null;
-  try { return new URL(POSE_PRIMITIVES[key], window.location.origin).href; }
-  catch (_e) { return POSE_PRIMITIVES[key]; }
+  return (key && POSE_PRIMITIVES[key]) ? POSE_PRIMITIVES[key] : null;
 }
 
 function buildLockedIllustrationPrompt({ styleGuide, charManifest, settingDesc, sceneText, pageNum, visualKitNote, motifNote, hasReferenceImage }) {
