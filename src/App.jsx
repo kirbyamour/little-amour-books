@@ -2015,7 +2015,7 @@ async function deriveCharactersFromImages(dataUrls, existingChars) {
 // character: a single clean reference portrait, NOT a multi-pose model sheet. Used both
 // for the Characters-tab portrait and, once generated, as the literal image-to-image
 // reference for that character's first page appearance.
-async function genCharacterPortrait(character, styleGuide, seed) {
+async function genCharacterPortrait(character, styleGuide, seed, bookId) {
   const prompt = [
     `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
     ``,
@@ -2031,7 +2031,7 @@ async function genCharacterPortrait(character, styleGuide, seed) {
   ].join("\n");
   const res = await fetch("/api/image", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
+    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd", ...(bookId ? { bookId } : {}) }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -2041,7 +2041,7 @@ async function genCharacterPortrait(character, styleGuide, seed) {
 // Part of the Visual Kit — a single character-free reference image locking the book's
 // setting/location so pages set in "the same room/yard/etc." stay visually consistent
 // instead of each page inventing its own version of the place from text alone.
-async function genSettingReference(styleGuide, settingDesc, seed) {
+async function genSettingReference(styleGuide, settingDesc, seed, bookId) {
   const prompt = [
     `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
     ``,
@@ -2055,7 +2055,7 @@ async function genSettingReference(styleGuide, settingDesc, seed) {
   ].join("\n");
   const res = await fetch("/api/image", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
+    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd", ...(bookId ? { bookId } : {}) }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -2068,7 +2068,7 @@ async function genSettingReference(styleGuide, settingDesc, seed) {
 // learn "what this looks like," not "who these people are." Mixing character identity
 // into the training set would bias the trained style toward one character's specific
 // face/pose instead of the illustration technique itself.
-async function genStyleSample(styleGuide, sceneIdea, seed) {
+async function genStyleSample(styleGuide, sceneIdea, seed, bookId) {
   const prompt = [
     `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
     ``,
@@ -2080,7 +2080,7 @@ async function genStyleSample(styleGuide, sceneIdea, seed) {
   ].join("\n");
   const res = await fetch("/api/image", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT }),
+    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, ...(bookId ? { bookId } : {}) }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -2096,7 +2096,7 @@ async function genStyleSample(styleGuide, sceneIdea, seed) {
 // page's actual scene (confirmed live: "Sometimes things get very loud" came back as a
 // blank-background character sheet, not an illustration). The Scene Anchor gives the model
 // a real composition — protagonist + place + style — to build a new scene from.
-async function genSceneAnchor(character, styleGuide, settingDesc, seed) {
+async function genSceneAnchor(character, styleGuide, settingDesc, seed, bookId) {
   const who = character ? `${character.name} — ${character.desc}` : "the protagonist";
   const prompt = [
     `STYLE (locked): ${styleGuide || "warm, gentle children's picture-book illustration"}`,
@@ -2115,7 +2115,7 @@ async function genSceneAnchor(character, styleGuide, settingDesc, seed) {
   ].join("\n");
   const res = await fetch("/api/image", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd" }),
+    body: JSON.stringify({ prompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd", ...(bookId ? { bookId } : {}) }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error);
@@ -2541,6 +2541,7 @@ let styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd",
+        bookId: (book && book.id) || null, pageNum: (pageIndex != null ? pageIndex + 1 : null),
         ...(loraUrl ? { loraUrl } : referenceImageUrl ? { referenceImageUrl, ...(strength != null ? { strength } : {}) } : {}),
       }),
     });
@@ -4422,19 +4423,19 @@ const styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGui
       for (let i = 0; i < book.characters.length; i++) {
         if (isSymbolicMotif(book.characters[i])) continue; // symbolic motif — no portrait, see isSymbolicMotif
         if (!book.characters[i].img) {
-          const url = await genCharacterPortrait(book.characters[i], styleGuide, seed);
+          const url = await genCharacterPortrait(book.characters[i], styleGuide, seed, book.id);
           setChar(i, { img: url });
         }
       }
       const settingDesc = (book.bible && book.bible.setting) || book.setting || "";
-      const settingImg = await genSettingReference(styleGuide, settingDesc, seed);
+      const settingImg = await genSettingReference(styleGuide, settingDesc, seed, book.id);
       const sampleScene = STYLE_SAMPLE_SCENES[Math.floor(Math.random() * STYLE_SAMPLE_SCENES.length)];
-      const styleSampleImg = await genStyleSample(styleGuide, sampleScene, seed);
+      const styleSampleImg = await genStyleSample(styleGuide, sampleScene, seed, book.id);
       // The Scene Anchor — protagonist actually placed in the setting, full composition —
       // is what page 1 anchors to instead of the isolated portrait (see genSceneAnchor and
       // the page-1 referenceImageUrl logic in paintPageWithConsistency).
       const protagonist = protagonistCharacter(book.characters);
-      const sceneAnchorImg = await genSceneAnchor(protagonist, styleGuide, settingDesc, seed);
+      const sceneAnchorImg = await genSceneAnchor(protagonist, styleGuide, settingDesc, seed, book.id);
       // Rebuilding the kit always clears approval — a regenerated reference image needs
       // a fresh look before it's trusted as the anchor for every page again.
       setBook((b) => ({ ...b, visualKit: { settingDesc, settingImg, styleSampleImg, sceneAnchorImg, builtAt: new Date().toISOString() }, visualKitApproved: false }));
@@ -4598,7 +4599,7 @@ const styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGui
 const styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide || collection?.styleGuide || book.derivedStyle || "";
       let seed = collection?.seed || book.seed;
       if (!seed) { seed = Math.floor(Math.random() * 900000) + 100000; setBook((b) => ({ ...b, seed: b.seed || seed })); }
-      const url = await genCharacterPortrait(c, styleGuide, seed);
+      const url = await genCharacterPortrait(c, styleGuide, seed, book.id);
       setChar(i, { img: url });
     } catch (e) {
       // Record the failure so the lazy-fill effect below moves on to other characters

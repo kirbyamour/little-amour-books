@@ -50,13 +50,54 @@
  *
  * Required Vercel env var:
  *   FAL_API_KEY — from fal.ai (free to start)
+ *
+ * Render logging: every call is durably logged to Supabase table
+ * public.render_log (service role, bypasses RLS — no anon policies exist
+ * on this table). Logging is fail-open: it can never block, delay, or
+ * fail the actual render response. Uses the same createClient(VITE_SUPABASE_URL,
+ * SUPABASE_SERVICE_ROLE_KEY) pattern as api/deliver.js and api/publish-upload.js.
+ * Env: VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  */
+import { createClient } from "@supabase/supabase-js";
+
+let warnedMissingSupabaseEnv = false;
+
+async function logRender({ endpoint, prompt, negative_prompt, seed, params, reference_image_url, lora_url, output_url, error, book_id, page_num }) {
+  try {
+    const url = process.env.VITE_SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) {
+      if (!warnedMissingSupabaseEnv) {
+        warnedMissingSupabaseEnv = true;
+        console.warn("render_log skipped: VITE_SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY not configured.");
+      }
+      return;
+    }
+    const supabase = createClient(url, key);
+    await supabase.from("render_log").insert({
+      endpoint,
+      prompt,
+      negative_prompt,
+      seed,
+      params,
+      reference_image_url,
+      lora_url,
+      output_url,
+      error,
+      book_id,
+      page_num,
+    });
+  } catch (logErr) {
+    console.warn("render_log insert failed (non-blocking):", logErr?.message || logErr);
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { prompt, seed, negative_prompt, referenceImageUrl, strength, loraUrl, loraScale, imageSize } = req.body;
+  const { prompt, seed, negative_prompt, referenceImageUrl, strength, loraUrl, loraScale, imageSize, bookId, pageNum } = req.body;
   // Callers painting book pages rely on the existing portrait_4_3 default (matches the
   // book's page trim). Cover generation is a square trim, so Publishing.jsx passes
   // imageSize: "square_hd" explicitly — without this, covers were generated as 4:3
@@ -132,13 +173,58 @@ export default async function handler(req, res) {
 
     const data = await r.json();
     const url = data?.images?.[0]?.url;
+    const falEndpoint = useLora
+      ? "fal-ai/flux-lora"
+      : useImageToImage
+      ? "fal-ai/flux/dev/image-to-image"
+      : "fal-ai/flux/dev";
+    const logParams = { strength: useImageToImage ? falBody.strength : undefined, loraScale: useLora ? falBody.loras?.[0]?.scale : undefined, imageSize: size, guidance: falBody.guidance_scale, num_inference_steps: falBody.num_inference_steps };
     if (!url) {
       const msg = data?.detail || data?.error || "fal.ai returned no image";
+      await logRender({
+        endpoint: falEndpoint,
+        prompt,
+        negative_prompt,
+        seed: seed != null ? Number(seed) : null,
+        params: logParams,
+        reference_image_url: referenceImageUrl || null,
+        lora_url: loraUrl || null,
+        output_url: null,
+        error: String(msg),
+        book_id: bookId || null,
+        page_num: pageNum != null ? Number(pageNum) : null,
+      });
       return res.status(500).json({ error: String(msg) });
     }
+    await logRender({
+      endpoint: falEndpoint,
+      prompt,
+      negative_prompt,
+      seed: seed != null ? Number(seed) : null,
+      params: logParams,
+      reference_image_url: referenceImageUrl || null,
+      lora_url: loraUrl || null,
+      output_url: url,
+      error: null,
+      book_id: bookId || null,
+      page_num: pageNum != null ? Number(pageNum) : null,
+    });
     return res.status(200).json({ url, model: useLora ? "flux-lora" : useImageToImage ? "flux-dev-i2i" : "flux-dev" });
 
   } catch (err) {
+    await logRender({
+      endpoint: useLora ? "fal-ai/flux-lora" : useImageToImage ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev",
+      prompt,
+      negative_prompt,
+      seed: seed != null ? Number(seed) : null,
+      params: { strength: useImageToImage ? strength : undefined, loraScale: useLora ? loraScale : undefined, imageSize: size },
+      reference_image_url: referenceImageUrl || null,
+      lora_url: loraUrl || null,
+      output_url: null,
+      error: err.message || "Image generation proxy error",
+      book_id: bookId || null,
+      page_num: pageNum != null ? Number(pageNum) : null,
+    });
     return res.status(500).json({ error: err.message || "Image generation proxy error" });
   }
 }
