@@ -1960,6 +1960,30 @@ function isInvalidVisionText(text) {
   return false;
 }
 
+// Guards every save point for AI-derived style/bible fields (book.derivedStyle,
+// book.styleGuide, book.visualKit.styleDesc, a collection's styleGuide). A past real bug
+// let a refusal like "I don't see any images attached..." get saved straight into
+// book.derivedStyle and poison every page prompt built from it afterward — this is the
+// backstop so that can't happen again. Never applied to user-typed/manually-entered
+// fields (page text, sceneDirection, etc.) — only AI-derived style saves.
+function isInvalidStyleText(text) {
+  if (!text || typeof text !== "string") return true;
+  const trimmed = text.trim();
+  if (trimmed.length < 15) return true;
+  if (trimmed.length > 2000) return true;
+  const patterns = [
+    /\bI (don't|do not|cannot|can't|am unable)\b/i,
+    /\bI'm (unable|sorry|an AI)\b/i,
+    /\bas an AI\b/i,
+    /\bno images? (were|was|is|are)? ?(attached|provided|uploaded)\b/i,
+    /\bI don't see\b/i,
+    /\bunable to (view|see|access)\b/i,
+    /\berror\b.{0,30}\b(occurred|processing)\b/i,
+    /^\s*\{?"?error/i,
+  ];
+  return patterns.some((re) => re.test(trimmed));
+}
+
 async function deriveStyleFromImages(dataUrls) {
   if (!dataUrls.length) return null;
   try {
@@ -2445,7 +2469,11 @@ let styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide
     const otherPageImgs = book.pages.filter((pg) => pg.img && pg.id !== page.id).map((pg) => pg.img).slice(0, 3);
     if (!book.derivedStyle && otherPageImgs.length) {
       const derived = await deriveStyleFromImages(otherPageImgs);
-      if (derived) { styleGuide = derived; setBook((b) => ({ ...b, derivedStyle: derived })); }
+      if (derived && !isInvalidStyleText(derived)) {
+        styleGuide = derived; setBook((b) => ({ ...b, derivedStyle: derived }));
+      } else if (derived) {
+        console.warn("Rejected invalid style text:", derived.slice(0, 80));
+      }
     }
 
     // Only treat feedback as a revision note if there's already an image to revise —
@@ -3409,13 +3437,17 @@ function AmoraBuild({ book, setBook, collection, savedFlash, onGoEditor, onPubli
     const chars = Array.isArray(d.characters)
       ? d.characters.filter((c) => c && c.name).map((c) => ({ name: c.name, desc: c.desc || "", role: c.role || "" }))
       : [];
+    if (d.styleGuide && isInvalidStyleText(d.styleGuide)) {
+      console.warn("Rejected invalid style text:", d.styleGuide.slice(0, 80));
+    }
+    const nextStyleGuide = (d.styleGuide && !isInvalidStyleText(d.styleGuide)) ? d.styleGuide : undefined;
     setBook((b) => ({
       ...b,
       title: (!b.title || b.title === "Untitled book") && d.title ? d.title : b.title,
       ageRange: d.ageRange || b.ageRange,
       bible: { ...(b.bible || {}), concept: d.concept || "", coreMessage: d.coreMessage || "", emotionalGoal: d.emotionalGoal || "", setting: d.setting || "", refrain: d.refrain || "", boundaries: d.boundaries || "", avoid: d.avoid || "" },
       characters: chars.length ? chars : b.characters,
-      styleGuide: d.styleGuide || b.styleGuide,
+      styleGuide: nextStyleGuide || b.styleGuide,
       discoveryStarted: true,
       bibleDrafted: true,
     }));
@@ -4172,11 +4204,15 @@ CRITICAL: You have NOT locked, saved, added, or generated anything by writing th
         j = {};
       }
       const byN = {}; (j.pages || []).forEach((p) => { byN[p.n] = p.text; });
+      if (j.styleGuide && isInvalidStyleText(j.styleGuide)) {
+        console.warn("Rejected invalid style text:", j.styleGuide.slice(0, 80));
+      }
+      const synthStyleGuide = (j.styleGuide && !isInvalidStyleText(j.styleGuide)) ? j.styleGuide : undefined;
       setBook((b) => ({
         ...b,
         title: j.title && j.title !== "best guess" ? j.title : b.title,
         characters: (j.characters && j.characters.length ? j.characters : b.characters),
-        styleGuide: j.styleGuide || b.styleGuide || "",
+        styleGuide: synthStyleGuide || b.styleGuide || "",
         // finishedArt: true marks these as already-complete pages — art AND text were
         // baked into the same uploaded pixels by the author before this ever reached us.
         // The `text` field below is only a transcription Amora read off the image for her
