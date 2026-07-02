@@ -2242,11 +2242,12 @@ function renderSymbolicMotifNote(motifs, cueText) {
 // primitive (the Page 2 proof case).
 // Hosted at a public, anonymously-fetchable URL. The image-to-image backend (fal) fetches the
 // reference server-side and CANNOT reach Vercel deployment-protected asset URLs (confirmed:
-// same asset 404s for fal from the Vercel origin but fetches fine from raw GitHub). Interim host
-// is the repo's raw GitHub path; move to a dedicated public CDN/bucket later. The PNG also lives
-// in /public for in-app display.
+// same asset 404s for fal from the Vercel origin but fetches fine from raw GitHub). Permanent
+// host is a Supabase public storage bucket named "pose-primitives" (confirmed anonymously
+// fetchable by fal); any new pose primitives added in future should be uploaded to that same
+// bucket. The PNG also lives in /public for in-app display.
 const POSE_PRIMITIVES = {
-  curled_hand_chest_heaviness: "https://raw.githubusercontent.com/kirbyamour/little-amour-books/main/public/curled-hand-chest-heaviness.png",
+  curled_hand_chest_heaviness: "https://usswjujofmwcpdtkexbr.supabase.co/storage/v1/object/public/pose-primitives/curled-hand-chest-heaviness.png",
 };
 function resolvePoseAnchorUrl(key) {
   return (key && POSE_PRIMITIVES[key]) ? POSE_PRIMITIVES[key] : null;
