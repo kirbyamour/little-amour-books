@@ -2565,13 +2565,36 @@ let styleGuide = (book.visualKit && book.visualKit.styleDesc) || book.styleGuide
     const styleForPrompt = sanitizeStyleForImagePrompt(styleGuide);
     const lockedPrompt = buildLockedIllustrationPrompt({ styleGuide: styleForPrompt, charManifest, settingDesc, sceneText, pageNum: (pageIndex || 0) + 1, visualKitNote, motifNote, hasReferenceImage: !!referenceImageUrl });
 
+    // Kontext-anchor gate (PR-4): a page opts into the single-pass pose+character-ref
+    // render primitive only when ALL of renderMode === "kontext_anchor", the pose
+    // primitive itself resolves, and the book's main character already has a painted
+    // portrait to use as the character reference. renderMode is unset on every page
+    // today, so this gate is unmet everywhere and the app's behavior is unchanged
+    // until pages start opting in. Fully additive — does not touch the loraUrl/
+    // referenceImageUrl/poseAnchorRequired routing above when unmet.
+    const kontextPoseUrl = page.renderMode === "kontext_anchor" ? resolvePoseAnchorUrl(page.poseAnchorKey) : null;
+    const kontextMainChar = kontextPoseUrl ? protagonistCharacter(physicalChars) : null;
+    const useKontextAnchor = !!(kontextPoseUrl && kontextMainChar && kontextMainChar.img);
+
     const imgRes = await fetch("/api/image", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd",
-        bookId: (book && book.id) || null, pageNum: (pageIndex != null ? pageIndex + 1 : null),
-        ...(loraUrl ? { loraUrl } : referenceImageUrl ? { referenceImageUrl, ...(strength != null ? { strength } : {}) } : {}),
-      }),
+      body: JSON.stringify(
+        useKontextAnchor
+          ? {
+              mode: "kontext_anchor",
+              prompt: lockedPrompt,
+              referenceImageUrl: kontextPoseUrl,
+              characterRefUrl: kontextMainChar.img,
+              ...(seed != null ? { seed } : {}),
+              bookId: (book && book.id) || null,
+              pageNum: (pageIndex != null ? pageIndex + 1 : null),
+            }
+          : {
+              prompt: lockedPrompt, seed, negative_prompt: ILLUSTRATION_NEGATIVE_PROMPT, imageSize: "square_hd",
+              bookId: (book && book.id) || null, pageNum: (pageIndex != null ? pageIndex + 1 : null),
+              ...(loraUrl ? { loraUrl } : referenceImageUrl ? { referenceImageUrl, ...(strength != null ? { strength } : {}) } : {}),
+            }
+      ),
     });
     const imgData = await imgRes.json();
     if (imgData.error) {

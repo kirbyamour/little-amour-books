@@ -48,6 +48,11 @@
  * new content." That's why loraUrl is the path going forward; referenceImageUrl stays
  * only as a fallback for collections that haven't been trained yet.
  *
+ * When mode === "kontext_anchor", this instead calls fal-ai/flux-pro/kontext/multi
+ * with two reference images in one pass — the pose anchor (referenceImageUrl) and a
+ * character portrait (characterRefUrl) — so pose staging and character identity are
+ * both supplied as visual references, instead of the loraUrl/img2img routing below.
+ *
  * Required Vercel env var:
  *   FAL_API_KEY — from fal.ai (free to start)
  *
@@ -97,7 +102,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { prompt, seed, negative_prompt, referenceImageUrl, strength, loraUrl, loraScale, imageSize, bookId, pageNum } = req.body;
+  const { prompt, seed, negative_prompt, referenceImageUrl, strength, loraUrl, loraScale, imageSize, bookId, pageNum, mode, characterRefUrl } = req.body;
   // Callers painting book pages rely on the existing portrait_4_3 default (matches the
   // book's page trim). Cover generation is a square trim, so Publishing.jsx passes
   // imageSize: "square_hd" explicitly — without this, covers were generated as 4:3
@@ -106,6 +111,9 @@ export default async function handler(req, res) {
   // instructions and baked in).
   const size = imageSize || "portrait_4_3";
   if (!prompt) return res.status(400).json({ error: "prompt is required" });
+  if (mode === "kontext_anchor" && (!referenceImageUrl || !characterRefUrl)) {
+    return res.status(400).json({ error: "kontext_anchor mode requires both referenceImageUrl and characterRefUrl" });
+  }
 
   const falKey = process.env.FAL_API_KEY;
   if (!falKey) {
@@ -114,11 +122,18 @@ export default async function handler(req, res) {
     });
   }
 
-  const useLora = !!loraUrl;
-  const useImageToImage = !useLora && !!referenceImageUrl;
+  const useKontextAnchor = mode === "kontext_anchor";
+  const useLora = !useKontextAnchor && !!loraUrl;
+  const useImageToImage = !useKontextAnchor && !useLora && !!referenceImageUrl;
 
   try {
-    const falBody = useLora
+    const falBody = useKontextAnchor
+      ? {
+          prompt,
+          image_urls: [referenceImageUrl, characterRefUrl],
+          guidance_scale: 3.5,
+        }
+      : useLora
       ? {
           prompt,
           loras: [{ path: loraUrl, scale: loraScale != null ? Number(loraScale) : 1 }],
@@ -154,9 +169,11 @@ export default async function handler(req, res) {
     if (seed != null) falBody.seed = Number(seed);
 
     // Negative prompt: block style drift, character changes, unsafe content
-    if (negative_prompt) falBody.negative_prompt = negative_prompt;
+    if (negative_prompt && !useKontextAnchor) falBody.negative_prompt = negative_prompt;
 
-    const falUrl = useLora
+    const falUrl = useKontextAnchor
+      ? "https://fal.run/fal-ai/flux-pro/kontext/multi"
+      : useLora
       ? "https://fal.run/fal-ai/flux-lora"
       : useImageToImage
       ? "https://fal.run/fal-ai/flux/dev/image-to-image"
@@ -173,12 +190,16 @@ export default async function handler(req, res) {
 
     const data = await r.json();
     const url = data?.images?.[0]?.url;
-    const falEndpoint = useLora
+    const falEndpoint = useKontextAnchor
+      ? "fal-ai/flux-pro/kontext/multi"
+      : useLora
       ? "fal-ai/flux-lora"
       : useImageToImage
       ? "fal-ai/flux/dev/image-to-image"
       : "fal-ai/flux/dev";
-    const logParams = { strength: useImageToImage ? falBody.strength : undefined, loraScale: useLora ? falBody.loras?.[0]?.scale : undefined, imageSize: size, guidance: falBody.guidance_scale, num_inference_steps: falBody.num_inference_steps };
+    const logParams = useKontextAnchor
+      ? { characterRefUrl, guidance: falBody.guidance_scale }
+      : { strength: useImageToImage ? falBody.strength : undefined, loraScale: useLora ? falBody.loras?.[0]?.scale : undefined, imageSize: size, guidance: falBody.guidance_scale, num_inference_steps: falBody.num_inference_steps };
     if (!url) {
       const msg = data?.detail || data?.error || "fal.ai returned no image";
       await logRender({
@@ -209,15 +230,15 @@ export default async function handler(req, res) {
       book_id: bookId || null,
       page_num: pageNum != null ? Number(pageNum) : null,
     });
-    return res.status(200).json({ url, model: useLora ? "flux-lora" : useImageToImage ? "flux-dev-i2i" : "flux-dev" });
+    return res.status(200).json({ url, model: useKontextAnchor ? "kontext-anchor" : useLora ? "flux-lora" : useImageToImage ? "flux-dev-i2i" : "flux-dev" });
 
   } catch (err) {
     await logRender({
-      endpoint: useLora ? "fal-ai/flux-lora" : useImageToImage ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev",
+      endpoint: useKontextAnchor ? "fal-ai/flux-pro/kontext/multi" : useLora ? "fal-ai/flux-lora" : useImageToImage ? "fal-ai/flux/dev/image-to-image" : "fal-ai/flux/dev",
       prompt,
       negative_prompt,
       seed: seed != null ? Number(seed) : null,
-      params: { strength: useImageToImage ? strength : undefined, loraScale: useLora ? loraScale : undefined, imageSize: size },
+      params: useKontextAnchor ? { characterRefUrl, guidance: 3.5 } : { strength: useImageToImage ? strength : undefined, loraScale: useLora ? loraScale : undefined, imageSize: size },
       reference_image_url: referenceImageUrl || null,
       lora_url: loraUrl || null,
       output_url: null,
