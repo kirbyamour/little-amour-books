@@ -132,6 +132,9 @@ export default async function handler(req, res) {
           prompt,
           image_urls: [referenceImageUrl, characterRefUrl],
           guidance_scale: 3.5,
+          // kontext/multi defaults to square output; book pages are portrait 4:3 trim.
+          // Map the app's imageSize vocabulary to kontext's aspect_ratio vocabulary.
+          aspect_ratio: size === "square_hd" ? "1:1" : "3:4",
         }
       : useLora
       ? {
