@@ -743,7 +743,8 @@ function EmailCapture() {
                 e.preventDefault();
                 if (!email) return;
                 try {
-                  await supabase.from("email_subscribers").upsert({ email: email.trim(), source: "store" }, { onConflict: "email" });
+                  // Insert-only under RLS (already-subscribed duplicates are fine to ignore)
+                  await supabase.from("email_subscribers").insert({ email: email.trim(), source: "store" });
                 } catch (ex) { /* non-fatal */ }
                 setDone(true);
               }}

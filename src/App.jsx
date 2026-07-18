@@ -1529,10 +1529,12 @@ function ApplyPage() {
     const code = form.couponCode.trim().toUpperCase();
     if (!code) return;
     setCouponStatus("checking");
-    const { data } = await supabase.from("launch_coupons").select("*").eq("code", code).single();
-    if (!data) { setCouponStatus("invalid"); return; }
-    if (data.used_at) { setCouponStatus("used"); return; }
-    setCouponStatus("valid");
+    // Narrow RPC: returns only 'valid' | 'used' | 'invalid' — the coupon table itself
+    // is no longer readable from the browser.
+    const { data } = await supabase.rpc("check_coupon", { p_code: code });
+    if (data === "valid") setCouponStatus("valid");
+    else if (data === "used") setCouponStatus("used");
+    else setCouponStatus("invalid");
   };
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value });
 
@@ -1588,9 +1590,9 @@ function ApplyPage() {
         agreement_accepted_at: new Date().toISOString(),
       });
 
-      // Mark coupon as used
+      // Mark coupon as used (narrow RPC — direct coupon-table writes are blocked)
       if (feeWaived && couponCode) {
-        await supabase.from("launch_coupons").update({ used_by_email: form.email.trim(), used_at: new Date().toISOString() }).eq("code", couponCode);
+        await supabase.rpc("redeem_coupon", { p_code: couponCode, p_email: form.email.trim() });
       }
     } catch (e) { /* non-fatal */ }
 
@@ -1874,29 +1876,31 @@ function AuthorChooserPage({ account, onPickAuthor, onPickAdmin, onSignOut, go }
 }
 
 /* ---------------- Sign in + author dashboard ---------------- */
-function SignInPage({ onSignIn }) {
+function SignInPage() {
+  // Secure passwordless sign-in: Supabase Auth emails a one-time magic link.
+  // No passwords exist anywhere anymore — nothing to leak, nothing to compare in JS.
   const [email, setEmail] = useState("");
-  const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
+  const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const tryIn = async () => {
+  const sendLink = async () => {
     const e = email.trim().toLowerCase();
-    if (!e || !pw) { setErr("Please enter your email and password."); return; }
+    if (!e) { setErr("Please enter your email."); return; }
     setLoading(true);
     setErr("");
     try {
-      const { data, error } = await supabase
-        .from("author_profiles")
-        .select("*")
-        .eq("email", e)
-        .eq("password", pw)
-        .eq("active", true)
-        .maybeSingle();
-      if (error || !data) {
-        setErr("We don\'t recognize that email and password. Try again.");
+      const { error } = await supabase.auth.signInWithOtp({
+        email: e,
+        options: { shouldCreateUser: false },
+      });
+      if (error) {
+        const msg = (error.message || "").toLowerCase();
+        setErr(msg.includes("not allowed") || msg.includes("not found") || msg.includes("signup")
+          ? "We don't recognize that email. Reach out to Little Amour for an author account."
+          : "Couldn't send your sign-in link just now. Please try again in a minute.");
       } else {
-        onSignIn({ id: data.id, name: data.pen_name, email: data.email, isKirby: data.is_admin, photoUrl: data.photo_url || null });
+        setSent(true);
       }
     } catch(ex) {
       setErr("Something went wrong. Please try again.");
@@ -1910,12 +1914,19 @@ function SignInPage({ onSignIn }) {
         <p className="eyebrow rose">Author studio</p>
         <h2 className="light">Welcome back, mama.</h2>
         <p className="lead light">Your books, your feedback, your earnings — all in one quiet place.</p>
+        {sent ? (
+          <div className="form dark-form">
+            <p className="lead light">✉️ Check your email — we sent you a secure sign-in link. Open it on this device and you'll land right back here, signed in.</p>
+            <button className="btn-text" onClick={() => { setSent(false); }}>Use a different email</button>
+          </div>
+        ) : (
         <div className="form dark-form">
-          <label><span>Email</span><input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" onKeyDown={(e) => e.key === "Enter" && tryIn()} /></label>
-          <label><span>Password</span><input type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" onKeyDown={(e) => e.key === "Enter" && tryIn()} /></label>
+          <label><span>Email</span><input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" onKeyDown={(e) => e.key === "Enter" && sendLink()} /></label>
           {err ? <p className="form-err">{err}</p> : null}
-          <button className="btn-gold" onClick={tryIn} disabled={loading}>{loading ? "Signing in…" : "Sign in"}</button>
+          <button className="btn-gold" onClick={sendLink} disabled={loading}>{loading ? "Sending your link…" : "Email me a sign-in link"}</button>
+          <p className="foot-small" style={{ marginTop: 10, opacity: 0.7 }}>No password needed — we'll email you a secure one-time link.</p>
         </div>
+        )}
       </div>
     </section>
   );
@@ -5202,15 +5213,39 @@ function routeFromPath(pathname) {
 export default function App() {
   const [route, setRoute] = useState(() => routeFromPath(window.location.pathname));
   const [studioHome, setStudioHome] = useState(0); // bumped to force KirbyStudio back to its dashboard list
-  const [account, setAccount] = useState(() => {
-    try { const raw = localStorage.getItem("la_account"); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
-  });
+  // The signed-in account is derived from the Supabase Auth session + the caller's own
+  // author_profiles row (readable only by its owner under RLS). It is NEVER trusted from
+  // localStorage — the old cached `la_account` object let anyone hand-edit isKirby:true.
+  const [account, setAccount] = useState(null);
   const [persona, setPersona] = useState(() => {
     try { const raw = localStorage.getItem("la_persona"); return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
   }); // author Kirby is currently viewing as
   useEffect(() => {
-    try { if (account) localStorage.setItem("la_account", JSON.stringify(account)); else localStorage.removeItem("la_account"); } catch (e) {}
-  }, [account]);
+    try { localStorage.removeItem("la_account"); } catch (e) {} // clean up the legacy cache
+    let active = true;
+    const loadProfile = async (user) => {
+      if (!user) { if (active) setAccount(null); return; }
+      try {
+        const { data: p } = await supabase
+          .from("author_profiles")
+          .select("id,pen_name,email,is_admin,photo_url")
+          .eq("auth_user_id", user.id)
+          .eq("active", true)
+          .maybeSingle();
+        if (!active) return;
+        if (p) setAccount({ id: p.id, name: p.pen_name, email: p.email, isKirby: p.is_admin, photoUrl: p.photo_url || null });
+        else setAccount(null);
+      } catch (e) { if (active) setAccount(null); }
+    };
+    supabase.auth.getSession().then(({ data }) => loadProfile(data?.session?.user || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => { loadProfile(session?.user || null); });
+    return () => { active = false; sub?.subscription?.unsubscribe?.(); };
+  }, []);
+  const doSignOut = () => {
+    supabase.auth.signOut().catch(() => {});
+    setAccount(null);
+    setPersona(null);
+  };
   useEffect(() => {
     try { if (persona) localStorage.setItem("la_persona", JSON.stringify(persona)); else localStorage.removeItem("la_persona"); } catch (e) {}
   }, [persona]);
@@ -5226,27 +5261,26 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const { data: rows } = await supabase.from("studio_data").select("id,data").in("id", ["kirby", "mara", "june"]);
+        // Covers come from a narrow SECURITY DEFINER RPC that returns ONLY whitelisted
+        // cover + sell-format fields — anonymous visitors can no longer read studio_data
+        // (drafts, prompts, chats) directly, which the old query allowed.
+        const { data: rows } = await supabase.rpc("get_published_covers");
         let changed = false;
-        (rows || []).forEach((row) => {
-          (row.data?.books || []).forEach((sb) => {
-            const c = sb.publishing?.cover;
-            const url = c?.coverImageUrl;
-            if (!url) return;
+        (rows || []).forEach((r) => {
+          const c = r.cover;
+          if (c && c.url) {
             // Store the whole cover record, not just the image URL — ComposedCover needs
             // title/subtitle/author/series/age-badge/logo to render the same overlay the
             // author approved in Publishing, not just the bare illustration.
-            const next = { url, title: c.title, subtitle: c.subtitle, authorName: c.authorName, series: c.series, ageRange: c.ageRange, showAgeBadge: c.showAgeBadge, showLogo: c.showLogo, finishedArt: c.finishedArt };
-            const prev = coverImageMap[sb.id];
-            if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) { coverImageMap[sb.id] = next; changed = true; }
+            const next = { url: c.url, title: c.title, subtitle: c.subtitle, authorName: c.authorName, series: c.series, ageRange: c.ageRange, showAgeBadge: c.showAgeBadge, showLogo: c.showLogo, finishedArt: c.finishedArt };
+            const prev = coverImageMap[r.book_id];
+            if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) { coverImageMap[r.book_id] = next; changed = true; }
+          }
 
-            // Sell-format flags (PDF / Physical / Amazon) set by the author in Publishing -> Sell As.
-            const sellAs = sb.publishing?.sellAs;
-            const amazonUrl = sb.publishing?.amazonUrl;
-            const nextFmt = { sellAs: sellAs || { pdf: true, physical: true, amazon: false }, amazonUrl: amazonUrl || "" };
-            const prevFmt = formatMap[sb.id];
-            if (!prevFmt || JSON.stringify(prevFmt) !== JSON.stringify(nextFmt)) { formatMap[sb.id] = nextFmt; changed = true; }
-          });
+          // Sell-format flags (PDF / Physical / Amazon) set by the author in Publishing -> Sell As.
+          const nextFmt = { sellAs: (r.sell && r.sell.sellAs) || { pdf: true, physical: true, amazon: false }, amazonUrl: (r.sell && r.sell.amazonUrl) || "" };
+          const prevFmt = formatMap[r.book_id];
+          if (!prevFmt || JSON.stringify(prevFmt) !== JSON.stringify(nextFmt)) { formatMap[r.book_id] = nextFmt; changed = true; }
         });
         if (changed) setCoverTick((t) => t + 1);
       } catch (e) { /* keep placeholders */ }
@@ -5402,18 +5436,18 @@ export default function App() {
   else if (route.page === "contact") page = <RefundRequestForm go={go} />;
   else if (route.page === "admin") return <AdminDashboard onBack={() => go("home")} />;
   else if (route.page === "signin") {
-    if (!account) page = <SignInPage onSignIn={(a) => { setPersona(null); setAccount(a); }} />;
+    if (!account) page = <SignInPage />;
     else if (account?.isKirby && !persona) page = <AuthorChooserPage
         account={account}
         go={go}
         onPickAuthor={(a) => setPersona({ id: a.id, name: a.name, email: account.email, photoUrl: a.photo || null, isKirby: false })}
         onPickAdmin={() => setPersona("admin")}
-        onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
-    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} account={account} studioKey="kirby" homeSignal={studioHome} onSignOut={() => { setAccount(null); setPersona(null); go("home"); }} />;
+        onSignOut={() => { doSignOut(); go("home"); }} />;
+    else if (account?.isKirby && persona === "admin") page = <KirbyStudio go={go} account={account} studioKey="kirby" homeSignal={studioHome} onSignOut={() => { doSignOut(); go("home"); }} />;
     else if (account?.isKirby && persona) page = <KirbyStudio go={go} account={persona} studioKey={persona.id}
         homeSignal={studioHome}
         onSignOut={() => setPersona(null)} />;
-    else page = <KirbyStudio go={go} account={account} studioKey={resolveStudioKey(account)} homeSignal={studioHome} onSignOut={() => { setAccount(null); go("home"); }} />;
+    else page = <KirbyStudio go={go} account={account} studioKey={resolveStudioKey(account)} homeSignal={studioHome} onSignOut={() => { doSignOut(); go("home"); }} />;
   }
   else page = <NotFoundPage go={go} />;
 

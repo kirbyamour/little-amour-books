@@ -2181,10 +2181,9 @@ Return ONLY the text for that field, nothing else.` }],
 function AuthorAccounts() {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ pen_name: "", email: "", password: "", legal_name: "" });
+  const [form, setForm] = useState({ pen_name: "", email: "", legal_name: "" });
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
-  const [showPw, setShowPw] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -2197,20 +2196,21 @@ function AuthorAccounts() {
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3500); };
 
   const create = async () => {
-    if (!form.pen_name.trim() || !form.email.trim() || !form.password.trim()) {
-      flash("Pen name, email, and password are all required."); return;
+    if (!form.pen_name.trim() || !form.email.trim()) {
+      flash("Pen name and email are both required."); return;
     }
     setSaving(true);
+    // No password: authors sign in with a secure emailed magic link. Their auth
+    // identity is created/linked the first time they're invited via Supabase Auth.
     const { error } = await supabase.from("author_profiles").insert({
       pen_name: form.pen_name.trim(),
       email: form.email.trim().toLowerCase(),
-      password: form.password.trim(),
       legal_name: form.legal_name.trim() || null,
       is_admin: false,
       active: true,
     });
     if (error) { flash("Error: " + error.message); }
-    else { flash("✓ Account created for " + form.pen_name); setForm({ pen_name: "", email: "", password: "", legal_name: "" }); load(); }
+    else { flash("✓ Profile created for " + form.pen_name + " — invite her from Supabase Auth (Add user → " + form.email.trim().toLowerCase() + ") so her magic-link sign-in works."); setForm({ pen_name: "", email: "", legal_name: "" }); load(); }
     setSaving(false);
   };
 
@@ -2219,12 +2219,6 @@ function AuthorAccounts() {
     load();
   };
 
-  const resetPw = async (id, newPw) => {
-    if (!newPw) return;
-    await supabase.from("author_profiles").update({ password: newPw }).eq("id", id);
-    flash("✓ Password updated");
-    load();
-  };
 
   const P2 = { gold: "#E2A857", mauve: "#9b7eb8", green: "#4A9B6F", red: "#C0392B", ink: "#131A30", cream: "#FAF4EB", muted: "#8a7a9a", card: "#1a2235", border: "#2a2f45", night: "#0E1525" };
 
@@ -2255,12 +2249,9 @@ function AuthorAccounts() {
               placeholder="Their email address"
               style={{ background: P2.night, border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 14, outline: "none" }} />
           </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ color: P2.muted, fontSize: 12 }}>Password</span>
-            <input type="password" value={form.password} onChange={e => setForm(f => ({...f, password: e.target.value}))}
-              placeholder="Choose a password"
-              style={{ background: P2.night, border: `1px solid ${P2.border}`, borderRadius: 8, padding: "8px 12px", color: P2.cream, fontSize: 14, outline: "none" }} />
-          </label>
+          <p style={{ color: P2.muted, fontSize: 12, alignSelf: "end", margin: 0 }}>
+            No password needed — authors sign in with a secure emailed link.
+          </p>
         </div>
         <button onClick={create} disabled={saving}
           style={{ marginTop: 16, background: P2.mauve, color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontWeight: 700, fontSize: 14, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
@@ -2282,7 +2273,6 @@ function AuthorAccounts() {
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   {!a.is_admin && <ConnectStatus author={a} P2={P2} flash={flash} onUpdated={load} />}
-                  <ResetPasswordInline id={a.id} onReset={resetPw} P2={P2} />
                   {!a.is_admin && (
                     <button onClick={() => toggle(a.id, a.active)}
                       style={{ background: a.active ? "#2a1f35" : P2.green, color: a.active ? P2.red : "#fff", border: `1px solid ${a.active ? P2.red : P2.green}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>
@@ -2375,26 +2365,6 @@ function ConnectStatus({ author, P2, flash, onUpdated }) {
   );
 }
 
-function ResetPasswordInline({ id, onReset, P2 }) {
-  const [open, setOpen] = useState(false);
-  const [val, setVal] = useState("");
-  if (!open) return (
-    <button onClick={() => setOpen(true)}
-      style={{ background: "transparent", color: P2.muted, border: `1px solid ${P2.border}`, borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>
-      Reset PW
-    </button>
-  );
-  return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-      <input type="password" value={val} onChange={e => setVal(e.target.value)} placeholder="New password"
-        style={{ background: "#0E1525", border: `1px solid ${P2.border}`, borderRadius: 6, padding: "4px 8px", color: P2.cream, fontSize: 12, width: 120, outline: "none" }} />
-      <button onClick={() => { onReset(id, val); setOpen(false); setVal(""); }}
-        style={{ background: P2.gold, color: "#131A30", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>Save</button>
-      <button onClick={() => { setOpen(false); setVal(""); }}
-        style={{ background: "transparent", color: P2.muted, border: "none", fontSize: 12, cursor: "pointer" }}>✕</button>
-    </div>
-  );
-}
 
 /* ============================================================
    NEWSLETTER — Amora drafts email newsletters for subscribers
@@ -2858,11 +2828,32 @@ on conflict (code) do nothing;`;
 }
 
 export default function AdminDashboard({ onBack }) {
+  // Admin access is enforced by the DATABASE: every admin query below only returns
+  // data when the signed-in Supabase Auth user's author_profiles row has is_admin.
+  // This gate is just the matching UI — there is no client-side passcode anymore.
   const [unlocked, setUnlocked] = useState(false);
-  const [passcode, setPasscode] = useState("");
-  const [passErr, setPassErr] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [tab, setTab] = useState("overview");
   const [alerts, setAlerts] = useState({ applications: 0, themes: 0 });
+
+  useEffect(() => {
+    let active = true;
+    const check = async (session) => {
+      if (!session?.user) { if (active) { setUnlocked(false); setAuthChecked(true); } return; }
+      try {
+        const { data: p } = await supabase
+          .from("author_profiles")
+          .select("is_admin")
+          .eq("auth_user_id", session.user.id)
+          .eq("active", true)
+          .maybeSingle();
+        if (active) { setUnlocked(!!(p && p.is_admin)); setAuthChecked(true); }
+      } catch (e) { if (active) { setUnlocked(false); setAuthChecked(true); } }
+    };
+    supabase.auth.getSession().then(({ data }) => check(data?.session || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session) => { check(session); });
+    return () => { active = false; sub?.subscription?.unsubscribe?.(); };
+  }, []);
 
   useEffect(() => {
     if (!unlocked) return;
@@ -2882,36 +2873,11 @@ export default function AdminDashboard({ onBack }) {
         <div style={{ textAlign: "center", padding: 40 }}>
           <div style={{ fontSize: 36, marginBottom: 16 }}>🌙</div>
           <h2 style={{ color: "#FAF4EB", fontFamily: "Georgia, serif", marginBottom: 8 }}>Little Amour Admin</h2>
-          <p style={{ color: "#8a7a9a", marginBottom: 24, fontSize: 14 }}>Enter your passcode to continue</p>
-          <input
-            type="password"
-            value={passcode}
-            onChange={e => { setPasscode(e.target.value); setPassErr(false); }}
-            onKeyDown={e => {
-              if (e.key === "Enter") {
-                if (passcode.trim().toLowerCase() === "love") setUnlocked(true);
-                else setPassErr(true);
-              }
-            }}
-            placeholder="Passcode"
-            style={{
-              display: "block", width: 220, margin: "0 auto 12px", padding: "10px 16px",
-              borderRadius: 8, border: passErr ? "1.5px solid #C0392B" : "1.5px solid #2a2f45",
-              background: "#131A30", color: "#FAF4EB", fontSize: 15, outline: "none", textAlign: "center",
-            }}
-            autoFocus
-          />
-          {passErr && <p style={{ color: "#C0392B", fontSize: 13, marginBottom: 8 }}>Incorrect passcode</p>}
-          <button
-            onClick={() => {
-              if (passcode.trim().toLowerCase() === "love") setUnlocked(true);
-              else setPassErr(true);
-            }}
-            style={{
-              background: "#E2A857", color: "#131A30", border: "none", borderRadius: 8,
-              padding: "10px 28px", fontWeight: 700, fontSize: 15, cursor: "pointer",
-            }}
-          >Enter</button>
+          <p style={{ color: "#8a7a9a", marginBottom: 24, fontSize: 14, maxWidth: 320 }}>
+            {authChecked
+              ? "This area is for the admin account. Sign in from the Author Studio with your admin email, then come back here."
+              : "Checking your session…"}
+          </p>
           <div style={{ marginTop: 20 }}>
             <button onClick={onBack} style={{ background: "none", border: "none", color: "#5E5468", fontSize: 13, cursor: "pointer" }}>← Back to site</button>
           </div>
